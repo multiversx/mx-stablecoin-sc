@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "liquidity_pool",
+    "lending_pool",
+    "router"
+]

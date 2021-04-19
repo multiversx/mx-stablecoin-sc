@@ -50,9 +50,9 @@ pub trait LiquidityPool {
         #[payment] amount: BigUint,
     ) -> SCResult<()> {
         require!(amount > 0, "amount must be bigger then 0");
-        
+
         let caller = self.get_caller();
-        let borrow_token = self.get_borrow_token();
+        let borrow_token = self.debt_token_id().get();
         let asset = self.get_pool_asset();
 
         let mut borrows_reserve = self
@@ -65,10 +65,9 @@ pub trait LiquidityPool {
 
         let position_id = self.get_nft_hash();
         let debt_metadata = DebtMetadata {
-            timestamp: self.get_block_timestamp(),
             collateral_amount: amount.clone(),
             collateral_identifier: collateral_id.clone(),
-            collateral_timestamp: timestamp,
+            collateral_timestamp: self.get_block_timestamp(),
         };
 
         self.mint_debt(amount.clone(), debt_metadata.clone(), position_id.clone());
@@ -103,7 +102,7 @@ pub trait LiquidityPool {
             size: amount.clone(), // this will be initial L tokens amount
             health_factor: current_health,
             is_liquidated: false,
-            timestamp: debt_metadata.timestamp,
+            collateral_timestamp: debt_metadata.collateral_timestamp,
             collateral_amount: amount,
             collateral_identifier: collateral_id,
         };
@@ -116,53 +115,38 @@ pub trait LiquidityPool {
     #[endpoint(lockBTokens)]
     fn lock_b_tokens(
         &self,
-        initial_caller: Address,
-        #[payment_token] borrow_token: TokenIdentifier,
+        #[payment_token] debt_token: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<H256> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "can only be called by lending pool"
-        );
         require!(amount > 0, "amount must be greater then 0");
-        require!(!initial_caller.is_zero(), "invalid address");
-
         require!(
-            borrow_token == self.get_borrow_token(),
-            "borrow token not supported by this pool"
+            debt_token == self.debt_token_id().get(),
+            "debt token not supported by this pool"
         );
 
         let nft_nonce = self.call_value().esdt_token_nonce();
-
         let esdt_nft_data = self.get_esdt_token_data(
             &self.get_sc_address(),
-            borrow_token.as_esdt_identifier(),
+            debt_token.as_esdt_identifier(),
             nft_nonce,
         );
 
         let debt_position_id = esdt_nft_data.hash;
-        let debt_position: DebtPosition<BigUint> = self
-            .debt_positions()
-            .get(&debt_position_id)
-            .unwrap_or_default();
+        let debt_position = match self.debt_positions().get(&debt_position_id) {
+            Some(pos) => pos,
+            None => return sc_error!("invalid debt position"),
+        };
 
-        require!(
-            debt_position != DebtPosition::default(),
-            "invalid debt position"
-        );
         require!(!debt_position.is_liquidated, "position is liquidated");
 
-        let metadata: DebtMetadata<BigUint>;
-        match DebtMetadata::<BigUint>::top_decode(esdt_nft_data.attributes.as_slice()) {
-            Result::Ok(decoded) => {
-                metadata = decoded;
-            }
+        let metadata = match esdt_nft_data.decode_attributes::<DebtMetadata<BigUint>>() {
+            Result::Ok(decoded) => decoded,
             Result::Err(_) => {
                 return sc_error!("could not parse token metadata");
             }
-        }
+        };
         let data = [
-            borrow_token.as_esdt_identifier(),
+            debt_token.as_esdt_identifier(),
             amount.to_bytes_be().as_slice(),
             &nft_nonce.to_be_bytes()[..],
         ]
@@ -170,10 +154,9 @@ pub trait LiquidityPool {
 
         let unique_repay_id = self.keccak256(&data);
         let repay_position = RepayPostion {
-            identifier: borrow_token,
+            identifier: debt_token,
             amount,
             nonce: nft_nonce,
-            borrow_timestamp: metadata.timestamp,
             collateral_identifier: metadata.collateral_identifier,
             collateral_amount: metadata.collateral_amount,
             collateral_timestamp: metadata.collateral_timestamp,
@@ -192,20 +175,16 @@ pub trait LiquidityPool {
         #[payment_token] asset: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<RepayPostion<BigUint>> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "function can only be called by lending pool"
-        );
         require!(amount > 0, "amount must be greater then 0");
         require!(
             asset == self.get_pool_asset(),
             "asset is not supported by this pool"
         );
-
         require!(
             self.repay_position().contains_key(&unique_id),
             "there are no locked borrowed token for this id, lock b tokens first"
         );
+
         let mut repay_position = self.repay_position().get(&unique_id).unwrap_or_default();
 
         require!(
@@ -234,7 +213,7 @@ pub trait LiquidityPool {
 
         let interest = self.get_debt_interest(
             repay_position.amount.clone(),
-            repay_position.borrow_timestamp,
+            repay_position.collateral_timestamp,
         );
 
         if repay_position.amount.clone() + interest == amount {
@@ -256,6 +235,7 @@ pub trait LiquidityPool {
         Ok(repay_position)
     }
 
+    // Might remove or merge with the repay function
     #[payable("*")]
     #[endpoint]
     fn withdraw(
@@ -264,10 +244,6 @@ pub trait LiquidityPool {
         #[payment_token] lend_token: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<()> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "liquidity pool can only be called by lending pool"
-        );
         require!(
             lend_token == self.get_lend_token(),
             "lend token is not supported by this pool"
@@ -303,10 +279,6 @@ pub trait LiquidityPool {
         #[payment_token] token: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<LiquidateData<BigUint>> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "function can only be called by lending pool"
-        );
         require!(amount > 0, "amount must be bigger then 0");
         require!(
             token == self.get_pool_asset(),
@@ -328,7 +300,7 @@ pub trait LiquidityPool {
             "the health factor is not low enough"
         );
 
-        let interest = self.get_debt_interest(debt_position.size.clone(), debt_position.timestamp);
+        let interest = self.get_debt_interest(debt_position.size.clone(), debt_position.collateral_timestamp);
 
         require!(
             debt_position.size.clone() + interest == amount,
@@ -467,19 +439,6 @@ pub trait LiquidityPool {
         }
     }
 
-    fn mint_interest(&self, amount: BigUint, metadata: InterestMetadata) {
-        self.send().esdt_nft_create::<InterestMetadata>(
-            self.get_gas_left(),
-            self.lend_token().get().as_esdt_identifier(),
-            &amount,
-            &BoxedBytes::empty(),
-            &BigUint::zero(),
-            &H256::zero(),
-            &metadata,
-            &[BoxedBytes::empty()],
-        )
-    }
-
     fn mint_debt(&self, amount: BigUint, metadata: DebtMetadata<BigUint>, position_id: H256) {
         self.send().esdt_nft_create::<DebtMetadata<BigUint>>(
             self.get_gas_left(),
@@ -551,7 +510,7 @@ pub trait LiquidityPool {
     #[view(getCapitalUtilisation)]
     fn get_capital_utilisation(&self) -> BigUint {
         let reserve_amount = self.get_reserve();
-        let borrowed_amount = self.get_total_borrow();
+        let borrowed_amount = self.total_borrow().get();
 
         self.library_module()
             .compute_capital_utilisation(borrowed_amount, reserve_amount)
@@ -569,11 +528,6 @@ pub trait LiquidityPool {
         self.pool_asset_id().get()
     }
 
-    #[view(borrowToken)]
-    fn get_borrow_token(&self) -> TokenIdentifier {
-        self.debt_token_id().get()
-    }
-
     // UTILS
 
     fn get_nft_hash(&self) -> H256 {
@@ -584,7 +538,11 @@ pub trait LiquidityPool {
     }
 
     fn compute_health_factor(&self) -> u32 {
-        0u32
+        0
+    }
+
+    fn get_health_factor_threshold(&self) -> u32 {
+        0
     }
 
     fn _get_borrow_rate(

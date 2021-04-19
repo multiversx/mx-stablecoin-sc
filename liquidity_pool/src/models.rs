@@ -21,7 +21,7 @@ pub struct DebtPosition<BigUint: BigUintApi> {
     pub size: BigUint,
     pub health_factor: u32,
     pub is_liquidated: bool,
-    pub timestamp: u64,
+    pub collateral_timestamp: u64,
     pub collateral_amount: BigUint,
     pub collateral_identifier: TokenIdentifier,
 }
@@ -34,7 +34,6 @@ pub struct LiquidateData<BigUint: BigUintApi> {
 
 #[derive(TopEncode, TopDecode, TypeAbi, Clone)]
 pub struct DebtMetadata<BigUint: BigUintApi> {
-    pub timestamp: u64,
     pub collateral_amount: BigUint,
     pub collateral_identifier: TokenIdentifier,
     pub collateral_timestamp: u64,
@@ -45,7 +44,6 @@ pub struct RepayPostion<BigUint: BigUintApi> {
     pub identifier: TokenIdentifier,
     pub amount: BigUint,
     pub nonce: u64,
-    pub borrow_timestamp: u64,
     pub collateral_identifier: TokenIdentifier,
     pub collateral_amount: BigUint,
     pub collateral_timestamp: u64,
@@ -57,7 +55,7 @@ impl<BigUint: BigUintApi> Default for DebtPosition<BigUint> {
             size: BigUint::zero(),
             health_factor: 0u32,
             is_liquidated: bool::default(),
-            timestamp: 0u64,
+            collateral_timestamp: 0u64,
             collateral_amount: BigUint::zero(),
             collateral_identifier: TokenIdentifier::egld(),
         }
@@ -70,7 +68,6 @@ impl<BigUint: BigUintApi> Default for RepayPostion<BigUint> {
             identifier: TokenIdentifier::egld(),
             amount: BigUint::zero(),
             nonce: 0u64,
-            borrow_timestamp: 0u64,
             collateral_identifier: TokenIdentifier::egld(),
             collateral_amount: BigUint::zero(),
             collateral_timestamp: 0u64,

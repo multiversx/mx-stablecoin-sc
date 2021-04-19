@@ -1,7 +1,4 @@
-use elrond_wasm::{
-    api::BigUintApi,
-    types::{BoxedBytes, TokenIdentifier},
-};
+use elrond_wasm::{api::BigUintApi, types::TokenIdentifier};
 
 elrond_wasm::derive_imports!();
 
@@ -17,13 +14,6 @@ pub struct ReserveData<BigUint: BigUintApi> {
     pub r_slope2: BigUint,       // slope after optimal utilisation
     pub u_optimal: BigUint,      // optimal capital utilisation
     pub reserve_factor: BigUint, // safety module percentage fee
-}
-
-#[derive(TopEncode, TopDecode, TypeAbi)]
-pub struct IssueData {
-    pub name: BoxedBytes,
-    pub ticker: TokenIdentifier,
-    pub is_empty_ticker: bool,
 }
 
 #[derive(NestedEncode, NestedDecode, TopEncode, TopDecode, TypeAbi, PartialEq, Clone)]

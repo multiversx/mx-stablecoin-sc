@@ -6,17 +6,14 @@ pub use library::*;
 pub mod models;
 pub use models::*;
 
-use elrond_wasm::{only_owner, require, sc_error};
-
 elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
-const ESDT_ISSUE_COST: u64 = 5000000000000000000;
+const STABLE_COIN_NAME: &[u8] = b"StableCoin";
+const STABLE_COIN_TICKER: &[u8] = b"STCOIN";
 
-const LEND_TOKEN_PREFIX: &[u8] = b"L";
-const BORROW_TOKEN_PREFIX: &[u8] = b"B";
-const LEND_TOKEN_NAME: &[u8] = b"IntBearing";
 const DEBT_TOKEN_NAME: &[u8] = b"DebtBearing";
+const DEBT_TOKEN_TICKER: &[u8] = b"DEBT";
 
 #[elrond_wasm_derive::contract(LiquidityPoolImpl)]
 pub trait LiquidityPool {
@@ -27,7 +24,6 @@ pub trait LiquidityPool {
     fn init(
         &self,
         asset: TokenIdentifier,
-        lending_pool: Address,
         r_base: BigUint,
         r_slope1: BigUint,
         r_slope2: BigUint,
@@ -35,8 +31,7 @@ pub trait LiquidityPool {
         reserve_factor: BigUint,
     ) {
         self.library_module().init();
-        self.pool_asset().set(&asset);
-        self.set_lending_pool(lending_pool);
+        self.pool_asset_id().set(&asset);
         self.debt_nonce().set(&1u64);
         self.reserve_data().set(&ReserveData {
             r_base,
@@ -49,71 +44,20 @@ pub trait LiquidityPool {
 
     #[payable("*")]
     #[endpoint]
-    fn deposit_asset(
-        &self,
-        initial_caller: Address,
-        #[payment_token] asset: TokenIdentifier,
-        #[payment] amount: BigUint,
-    ) -> SCResult<()> {
-        require!(amount > 0, "payment must be greater than 0");
-        require!(!initial_caller.is_zero(), "invalid address provided");
-
-        let pool_asset = self.pool_asset().get();
-        require!(
-            asset == pool_asset,
-            "asset not supported for this liquidity pool"
-        );
-
-        let interest_metadata = InterestMetadata {
-            timestamp: self.get_block_timestamp(),
-        };
-
-        self.mint_interest(amount.clone(), interest_metadata);
-
-        let lend_token = self.lend_token().get();
-        let nonce = self
-            .get_current_esdt_nft_nonce(&self.get_sc_address(), lend_token.as_esdt_identifier());
-
-        self.send().direct_esdt_nft_via_transfer_exec(
-            &initial_caller,
-            &lend_token.as_esdt_identifier(),
-            nonce,
-            &amount,
-            &[],
-        );
-
-        let mut asset_reserve = self
-            .reserves()
-            .get(&pool_asset)
-            .unwrap_or_else(BigUint::zero);
-        asset_reserve += amount;
-
-        self.reserves().insert(pool_asset, asset_reserve);
-
-        Ok(())
-    }
-
-    #[endpoint]
     fn borrow(
         &self,
-        initial_caller: Address,
-        lend_token: TokenIdentifier,
-        amount: BigUint,
-        timestamp: u64,
+        #[payment_token] collateral_id: TokenIdentifier,
+        #[payment] amount: BigUint,
     ) -> SCResult<()> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "can only be called through lending pool"
-        );
-        require!(amount > 0, "lend amount must be bigger then 0");
-        require!(!initial_caller.is_zero(), "invalid address provided");
-
-        let borrows_token = self.get_borrow_token();
+        require!(amount > 0, "amount must be bigger then 0");
+        
+        let caller = self.get_caller();
+        let borrow_token = self.get_borrow_token();
         let asset = self.get_pool_asset();
 
         let mut borrows_reserve = self
             .reserves()
-            .get(&borrows_token)
+            .get(&borrow_token)
             .unwrap_or_else(BigUint::zero);
         let mut asset_reserve = self.reserves().get(&asset).unwrap_or_else(BigUint::zero);
 
@@ -123,20 +67,20 @@ pub trait LiquidityPool {
         let debt_metadata = DebtMetadata {
             timestamp: self.get_block_timestamp(),
             collateral_amount: amount.clone(),
-            collateral_identifier: lend_token.clone(),
+            collateral_identifier: collateral_id.clone(),
             collateral_timestamp: timestamp,
         };
 
         self.mint_debt(amount.clone(), debt_metadata.clone(), position_id.clone());
 
         let nonce = self
-            .get_current_esdt_nft_nonce(&self.get_sc_address(), borrows_token.as_esdt_identifier());
+            .get_current_esdt_nft_nonce(&self.get_sc_address(), borrow_token.as_esdt_identifier());
 
         // send debt position tokens
 
         self.send().direct_esdt_nft_via_transfer_exec(
-            &initial_caller,
-            &borrows_token.as_esdt_identifier(),
+            &caller,
+            &borrow_token.as_esdt_identifier(),
             nonce,
             &amount,
             &[],
@@ -144,16 +88,14 @@ pub trait LiquidityPool {
 
         // send collateral requested to the user
 
-        self.send().direct(&initial_caller, &asset, &amount, &[]);
+        self.send().direct(&caller, &asset, &amount, &[]);
 
-        borrows_reserve += amount.clone();
-        asset_reserve -= amount.clone();
+        borrows_reserve += &amount;
+        asset_reserve -= &amount;
 
-        let mut total_borrow = self.get_total_borrow();
-        total_borrow += amount.clone();
-        self.set_total_borrow(total_borrow);
+        self.total_borrow().update(|total| *total += &amount);
 
-        self.reserves().insert(borrows_token, borrows_reserve);
+        self.reserves().insert(borrow_token, borrows_reserve);
         self.reserves().insert(asset, asset_reserve);
 
         let current_health = self.compute_health_factor();
@@ -163,7 +105,7 @@ pub trait LiquidityPool {
             is_liquidated: false,
             timestamp: debt_metadata.timestamp,
             collateral_amount: amount,
-            collateral_identifier: lend_token,
+            collateral_identifier: collateral_id,
         };
         self.debt_positions().insert(position_id, debt_position);
 
@@ -315,47 +257,6 @@ pub trait LiquidityPool {
     }
 
     #[payable("*")]
-    #[endpoint(mintLTokens)]
-    fn mint_l_tokens(
-        &self,
-        initial_caller: Address,
-        lend_token: TokenIdentifier,
-        amount: BigUint,
-        interest_timestamp: u64,
-    ) -> SCResult<()> {
-        require!(
-            self.get_caller() == self.get_lending_pool(),
-            "can only by called by lending pool"
-        );
-
-        require!(
-            lend_token == self.get_lend_token(),
-            "asset is not supported by this pool"
-        );
-        require!(amount > 0, "amount must be greater then 0");
-        require!(!initial_caller.is_zero(), "invalid address");
-
-        let interest_metadata = InterestMetadata {
-            timestamp: interest_timestamp,
-        };
-
-        self.mint_interest(amount.clone(), interest_metadata);
-
-        let nonce = self
-            .get_current_esdt_nft_nonce(&self.get_sc_address(), lend_token.as_esdt_identifier());
-
-        self.send().direct_esdt_nft_via_transfer_exec(
-            &initial_caller,
-            &lend_token.as_esdt_identifier(),
-            nonce,
-            &amount,
-            &[],
-        );
-
-        Ok(())
-    }
-
-    #[payable("*")]
     #[endpoint]
     fn withdraw(
         &self,
@@ -448,39 +349,71 @@ pub trait LiquidityPool {
     }
 
     #[payable("EGLD")]
-    #[endpoint]
-    fn issue(
+    #[endpoint(issueStablecoinToken)]
+    fn issue_stablecoin_token(
         &self,
-        plain_ticker: BoxedBytes,
-        token_ticker: TokenIdentifier,
-        token_prefix: BoxedBytes,
         #[payment] issue_cost: BigUint,
     ) -> SCResult<AsyncCall<BigUint>> {
-        only_owner!(self, "only owner can issue new tokens");
         require!(
-            issue_cost == BigUint::from(ESDT_ISSUE_COST),
-            "payment should be exactly 5 EGLD"
-        );
-        require!(
-            token_ticker == self.pool_asset().get(),
-            "wrong ESDT asset identifier"
+            self.stablecoin_token_id().is_empty(),
+            "Stablecoin already issued"
         );
 
-        let issue_data = self.prepare_issue_data(token_prefix.clone(), plain_ticker);
+        self.issue(
+            BoxedBytes::from(STABLE_COIN_NAME),
+            BoxedBytes::from(STABLE_COIN_TICKER),
+            issue_cost,
+        )
+    }
+
+    #[payable("EGLD")]
+    #[endpoint(issueDebtToken)]
+    fn issue_debt_token(&self, #[payment] issue_cost: BigUint) -> SCResult<AsyncCall<BigUint>> {
+        require!(self.debt_token_id().is_empty(), "Debt token already issued");
+
+        self.issue(
+            BoxedBytes::from(DEBT_TOKEN_NAME),
+            BoxedBytes::from(DEBT_TOKEN_TICKER),
+            issue_cost,
+        )
+    }
+
+    #[endpoint(setStablecoinRoles)]
+    fn set_stablecoin_roles(
+        &self,
+        #[var_args] roles: VarArgs<EsdtLocalRole>,
+    ) -> SCResult<AsyncCall<BigUint>> {
+        only_owner!(self, "only owner can set roles");
         require!(
-            issue_data.name != BoxedBytes::zeros(0),
-            "invalid input. could not prepare issue data"
+            !self.stablecoin_token_id().is_empty(),
+            "token not issued yet"
         );
-        require!(
-            issue_data.is_empty_ticker,
-            "token already issued for this identifier"
-        );
+        Ok(self.set_roles(self.stablecoin_token_id().get(), roles))
+    }
+
+    #[endpoint(setBorrowTokenRoles)]
+    fn set_borrow_token_roles(
+        &self,
+        #[var_args] roles: VarArgs<EsdtLocalRole>,
+    ) -> SCResult<AsyncCall<BigUint>> {
+        only_owner!(self, "only owner can set roles");
+        require!(!self.debt_token_id().is_empty(), "token not issued yet");
+        Ok(self.set_roles(self.debt_token_id().get(), roles))
+    }
+
+    fn issue(
+        &self,
+        token_display_name: BoxedBytes,
+        token_ticker: BoxedBytes,
+        issue_cost: BigUint,
+    ) -> SCResult<AsyncCall<BigUint>> {
+        only_owner!(self, "only owner can issue new tokens");
 
         Ok(ESDTSystemSmartContractProxy::new()
             .issue_semi_fungible(
                 issue_cost,
-                &issue_data.name,
-                &BoxedBytes::from(issue_data.ticker.as_esdt_identifier()),
+                &token_display_name,
+                &token_ticker,
                 SemiFungibleTokenProperties {
                     can_freeze: true,
                     can_wipe: true,
@@ -491,27 +424,7 @@ pub trait LiquidityPool {
                 },
             )
             .async_call()
-            .with_callback(self.callbacks().issue_callback(&token_prefix)))
-    }
-
-    #[endpoint(setLendTokenRoles)]
-    fn set_lend_token_roles(
-        &self,
-        #[var_args] roles: VarArgs<EsdtLocalRole>,
-    ) -> SCResult<AsyncCall<BigUint>> {
-        only_owner!(self, "only owner can set roles");
-        require!(!self.lend_token().is_empty(), "token not issued yet");
-        Ok(self.set_roles(self.lend_token().get(), roles))
-    }
-
-    #[endpoint(setBorrowTokenRoles)]
-    fn set_borrow_token_roles(
-        &self,
-        #[var_args] roles: VarArgs<EsdtLocalRole>,
-    ) -> SCResult<AsyncCall<BigUint>> {
-        only_owner!(self, "only owner can set roles");
-        require!(!self.borrow_token().is_empty(), "token not issued yet");
-        Ok(self.set_roles(self.borrow_token().get(), roles))
+            .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
     fn set_roles(
@@ -526,44 +439,30 @@ pub trait LiquidityPool {
                 roles.as_slice(),
             )
             .async_call()
-            .with_callback(self.callbacks().set_roles_callback())
     }
 
     #[callback]
     fn issue_callback(
         &self,
-        prefix: &BoxedBytes,
-        #[call_result] result: AsyncCallResult<TokenIdentifier>,
+        token_ticker: BoxedBytes,
+        #[payment_token] token_identifier: TokenIdentifier,
+        #[payment] returned_tokens: BigUint,
+        #[call_result] result: AsyncCallResult<()>,
     ) {
         match result {
-            AsyncCallResult::Ok(ticker) => {
-                if prefix == &BoxedBytes::from(LEND_TOKEN_PREFIX) {
-                    self.lend_token().set(&ticker);
-                } else {
-                    self.borrow_token().set(&ticker);
+            AsyncCallResult::Ok(()) => {
+                if token_ticker == BoxedBytes::from(STABLE_COIN_TICKER) {
+                    self.stablecoin_token_id().set(&token_identifier);
+                } else if token_ticker == BoxedBytes::from(DEBT_TOKEN_TICKER) {
+                    self.debt_token_id().set(&token_identifier);
                 }
-                self.last_error().clear();
-                self.send_callback_result(ticker, b"setTickerAfterIssue");
             }
-            AsyncCallResult::Err(message) => {
+            AsyncCallResult::Err(_) => {
                 let caller = self.get_owner_address();
                 let (returned_tokens, token_id) = self.call_value().payment_token_pair();
                 if token_id.is_egld() && returned_tokens > 0 {
                     self.send().direct_egld(&caller, &returned_tokens, &[]);
                 }
-                self.last_error().set(&message.err_msg);
-            }
-        }
-    }
-
-    #[callback]
-    fn set_roles_callback(&self, #[call_result] result: AsyncCallResult<()>) {
-        match result {
-            AsyncCallResult::Ok(()) => {
-                self.last_error().clear();
-            }
-            AsyncCallResult::Err(message) => {
-                self.last_error().set(&message.err_msg);
             }
         }
     }
@@ -584,7 +483,7 @@ pub trait LiquidityPool {
     fn mint_debt(&self, amount: BigUint, metadata: DebtMetadata<BigUint>, position_id: H256) {
         self.send().esdt_nft_create::<DebtMetadata<BigUint>>(
             self.get_gas_left(),
-            self.borrow_token().get().as_esdt_identifier(),
+            self.debt_token_id().get().as_esdt_identifier(),
             &amount,
             &BoxedBytes::empty(),
             &BigUint::zero(),
@@ -661,47 +560,21 @@ pub trait LiquidityPool {
     #[view(getReserve)]
     fn get_reserve(&self) -> BigUint {
         self.reserves()
-            .get(&self.pool_asset().get())
+            .get(&self.pool_asset_id().get())
             .unwrap_or_else(BigUint::zero)
     }
 
     #[view(poolAsset)]
     fn get_pool_asset(&self) -> TokenIdentifier {
-        self.pool_asset().get()
-    }
-
-    #[view(lendToken)]
-    fn get_lend_token(&self) -> TokenIdentifier {
-        self.lend_token().get()
+        self.pool_asset_id().get()
     }
 
     #[view(borrowToken)]
     fn get_borrow_token(&self) -> TokenIdentifier {
-        self.borrow_token().get()
+        self.debt_token_id().get()
     }
 
-    //
-    /// UTILS
-    fn prepare_issue_data(&self, prefix: BoxedBytes, ticker: BoxedBytes) -> IssueData {
-        let prefixed_ticker = [prefix.as_slice(), ticker.as_slice()].concat();
-        let mut issue_data = IssueData {
-            name: BoxedBytes::zeros(0),
-            ticker: TokenIdentifier::from(BoxedBytes::from(prefixed_ticker)),
-            is_empty_ticker: true,
-        };
-
-        if prefix == BoxedBytes::from(LEND_TOKEN_PREFIX) {
-            let name = [LEND_TOKEN_NAME, ticker.as_slice()].concat();
-            issue_data.name = BoxedBytes::from(name.as_slice());
-            issue_data.is_empty_ticker = self.lend_token().is_empty();
-        } else if prefix == BoxedBytes::from(BORROW_TOKEN_PREFIX) {
-            let name = [DEBT_TOKEN_NAME, ticker.as_slice()].concat();
-            issue_data.name = BoxedBytes::from(name.as_slice());
-            issue_data.is_empty_ticker = self.borrow_token().is_empty();
-        }
-
-        issue_data
-    }
+    // UTILS
 
     fn get_nft_hash(&self) -> H256 {
         let debt_nonce = self.debt_nonce().get();
@@ -733,19 +606,22 @@ pub trait LiquidityPool {
     }
 
     //
-    /// pool asset
-    #[storage_mapper("pool_asset")]
-    fn pool_asset(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
+    /// stablecoin token id
+    #[view(getStablecoinTokenId)]
+    #[storage_mapper("stablecoinTokenId")]
+    fn stablecoin_token_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
     //
-    /// lend token supported for asset
-    #[storage_mapper("lend_token")]
-    fn lend_token(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
+    /// pool asset
+    #[view(getPoolAssetId)]
+    #[storage_mapper("poolAssetId")]
+    fn pool_asset_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
     //
     /// borrow token supported for collateral
-    #[storage_mapper("borrow_token")]
-    fn borrow_token(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
+    #[view(getDebtTokenId)]
+    #[storage_mapper("debtTokenId")]
+    fn debt_token_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
     //
     /// pool reserves
@@ -753,54 +629,34 @@ pub trait LiquidityPool {
     fn reserves(&self) -> MapMapper<Self::Storage, TokenIdentifier, BigUint>;
 
     //
-    /// last error
-    #[storage_mapper("last_error")]
-    fn last_error(&self) -> SingleValueMapper<Self::Storage, BoxedBytes>;
-
-    //
     /// debt positions
-    #[storage_mapper("debt_positions")]
+    #[storage_mapper("debtPositions")]
     fn debt_positions(&self) -> MapMapper<Self::Storage, H256, DebtPosition<BigUint>>;
 
     //
     /// debt nonce
-    #[storage_mapper("debt_nonce")]
+    #[storage_mapper("debtNonce")]
     fn debt_nonce(&self) -> SingleValueMapper<Self::Storage, u64>;
 
     //
     /// repay position
-    #[storage_mapper("repay_position")]
+    #[storage_mapper("repayPosition")]
     fn repay_position(&self) -> MapMapper<Self::Storage, H256, RepayPostion<BigUint>>;
 
     //
     /// reserve data
-    #[storage_mapper("reserve_data")]
+    #[storage_mapper("reserveData")]
     fn reserve_data(&self) -> SingleValueMapper<Self::Storage, ReserveData<BigUint>>;
 
     //
     /// health factor threshold
-    #[storage_set("healthFactorThreshold")]
-    fn set_health_factor_threshold(&self, health_factor_threashdol: u32);
-
     #[view(healthFactorThreshold)]
-    #[storage_get("healthFactorThreshold")]
-    fn get_health_factor_threshold(&self) -> u32;
-
-    //
-    /// lending pool address
-    #[storage_set("lendingPool")]
-    fn set_lending_pool(&self, lending_pool: Address);
-
-    #[view(getLendingPool)]
-    #[storage_get("lendingPool")]
-    fn get_lending_pool(&self) -> Address;
+    #[storage_mapper("healthFactorThreshold")]
+    fn health_factor_threshold(&self) -> SingleValueMapper<Self::Storage, u32>;
 
     //
     // total borrowing from pool
-    #[storage_set("totalBorrow")]
-    fn set_total_borrow(&self, total: BigUint);
-
-    #[view(totalBorrow)]
-    #[storage_get("totalBorrow")]
-    fn get_total_borrow(&self) -> BigUint;
+    #[view(getTotalBorrow)]
+    #[storage_mapper("totalBorrow")]
+    fn total_borrow(&self) -> SingleValueMapper<Self::Storage, BigUint>;
 }

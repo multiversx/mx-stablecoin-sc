@@ -52,16 +52,16 @@ pub trait LiquidityPool {
         require!(amount > 0, "amount must be bigger then 0");
 
         let caller = self.get_caller();
-        let borrow_token = self.debt_token_id().get();
+        let debt_token_id = self.debt_token_id().get();
         let asset = self.get_pool_asset();
 
         let mut borrows_reserve = self
             .reserves()
-            .get(&borrow_token)
+            .get(&debt_token_id)
             .unwrap_or_else(BigUint::zero);
         let mut asset_reserve = self.reserves().get(&asset).unwrap_or_else(BigUint::zero);
 
-        require!(asset_reserve != BigUint::zero(), "asset reserve is empty");
+        require!(asset_reserve != 0, "asset reserve is empty");
 
         let position_id = self.get_nft_hash();
         let debt_metadata = DebtMetadata {
@@ -70,16 +70,16 @@ pub trait LiquidityPool {
             collateral_timestamp: self.get_block_timestamp(),
         };
 
-        self.mint_debt(amount.clone(), debt_metadata.clone(), position_id.clone());
+        self.mint_debt(&amount, &debt_metadata, &position_id);
 
         let nonce = self
-            .get_current_esdt_nft_nonce(&self.get_sc_address(), borrow_token.as_esdt_identifier());
+            .get_current_esdt_nft_nonce(&self.get_sc_address(), debt_token_id.as_esdt_identifier());
 
         // send debt position tokens
 
         self.send().direct_esdt_nft_via_transfer_exec(
             &caller,
-            &borrow_token.as_esdt_identifier(),
+            &debt_token_id.as_esdt_identifier(),
             nonce,
             &amount,
             &[],
@@ -94,7 +94,7 @@ pub trait LiquidityPool {
 
         self.total_borrow().update(|total| *total += &amount);
 
-        self.reserves().insert(borrow_token, borrows_reserve);
+        self.reserves().insert(debt_token_id, borrows_reserve);
         self.reserves().insert(asset, asset_reserve);
 
         let current_health = self.compute_health_factor();
@@ -112,8 +112,8 @@ pub trait LiquidityPool {
     }
 
     #[payable("*")]
-    #[endpoint(lockBTokens)]
-    fn lock_b_tokens(
+    #[endpoint(lockDebtTokens)]
+    fn lock_debt_tokens(
         &self,
         #[payment_token] debt_token: TokenIdentifier,
         #[payment] amount: BigUint,
@@ -131,8 +131,8 @@ pub trait LiquidityPool {
             nft_nonce,
         );
 
-        let debt_position_id = esdt_nft_data.hash;
-        let debt_position = match self.debt_positions().get(&debt_position_id) {
+        let debt_position_id = &esdt_nft_data.hash;
+        let debt_position = match self.debt_positions().get(debt_position_id) {
             Some(pos) => pos,
             None => return sc_error!("invalid debt position"),
         };
@@ -225,9 +225,9 @@ pub trait LiquidityPool {
         }
 
         self.burn(
-            amount.clone(),
+            &amount,
             repay_position.nonce,
-            repay_position.identifier.clone(),
+            &repay_position.identifier,
         );
 
         repay_position.amount = amount;
@@ -240,15 +240,15 @@ pub trait LiquidityPool {
     #[endpoint]
     fn withdraw(
         &self,
-        initial_caller: Address,
         #[payment_token] lend_token: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<()> {
-        require!(
+        let caller = self.get_caller();
+
+        /*require!(
             lend_token == self.get_lend_token(),
             "lend token is not supported by this pool"
-        );
-        require!(!initial_caller.is_zero(), "invalid address");
+        );*/
         require!(amount > 0, "amount must be bigger then 0");
 
         let pool_asset = self.get_pool_asset();
@@ -260,10 +260,10 @@ pub trait LiquidityPool {
         require!(asset_reserve != BigUint::zero(), "asset reserve is empty");
 
         let nonce = self.call_value().esdt_token_nonce();
-        self.burn(amount.clone(), nonce, lend_token);
+        self.burn(&amount, nonce, &lend_token);
 
         self.send()
-            .direct(&initial_caller, &pool_asset, &amount, &[]);
+            .direct(&caller, &pool_asset, &amount, &[]);
 
         asset_reserve -= amount;
         self.reserves().insert(pool_asset, asset_reserve);
@@ -417,21 +417,20 @@ pub trait LiquidityPool {
     fn issue_callback(
         &self,
         token_ticker: BoxedBytes,
-        #[payment_token] token_identifier: TokenIdentifier,
+        #[payment_token] token_id: TokenIdentifier,
         #[payment] returned_tokens: BigUint,
         #[call_result] result: AsyncCallResult<()>,
     ) {
         match result {
             AsyncCallResult::Ok(()) => {
                 if token_ticker == BoxedBytes::from(STABLE_COIN_TICKER) {
-                    self.stablecoin_token_id().set(&token_identifier);
+                    self.stablecoin_token_id().set(&token_id);
                 } else if token_ticker == BoxedBytes::from(DEBT_TOKEN_TICKER) {
-                    self.debt_token_id().set(&token_identifier);
+                    self.debt_token_id().set(&token_id);
                 }
             }
             AsyncCallResult::Err(_) => {
                 let caller = self.get_owner_address();
-                let (returned_tokens, token_id) = self.call_value().payment_token_pair();
                 if token_id.is_egld() && returned_tokens > 0 {
                     self.send().direct_egld(&caller, &returned_tokens, &[]);
                 }
@@ -439,7 +438,7 @@ pub trait LiquidityPool {
         }
     }
 
-    fn mint_debt(&self, amount: BigUint, metadata: DebtMetadata<BigUint>, position_id: H256) {
+    fn mint_debt(&self, amount: &BigUint, metadata: &DebtMetadata<BigUint>, position_id: &H256) {
         self.send().esdt_nft_create::<DebtMetadata<BigUint>>(
             self.get_gas_left(),
             self.debt_token_id().get().as_esdt_identifier(),
@@ -452,7 +451,7 @@ pub trait LiquidityPool {
         );
     }
 
-    fn burn(&self, amount: BigUint, nonce: u64, ticker: TokenIdentifier) {
+    fn burn(&self, amount: &BigUint, nonce: u64, ticker: &TokenIdentifier) {
         self.send().esdt_nft_burn(
             self.get_gas_left(),
             ticker.as_esdt_identifier(),
@@ -461,11 +460,11 @@ pub trait LiquidityPool {
         );
     }
 
-    fn send_callback_result(&self, token: TokenIdentifier, endpoint: &[u8]) {
+    fn send_callback_result(&self, token_id: &TokenIdentifier, endpoint: &[u8]) {
         let owner = self.get_owner_address();
 
         let mut args = ArgBuffer::new();
-        args.push_argument_bytes(token.as_esdt_identifier());
+        args.push_argument_bytes(token_id.as_esdt_identifier());
 
         self.send().execute_on_dest_context_raw(
             self.get_gas_left(),

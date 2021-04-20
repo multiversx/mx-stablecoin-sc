@@ -50,18 +50,11 @@ pub trait LiquidityPool {
         #[payment] amount: BigUint,
     ) -> SCResult<()> {
         require!(amount > 0, "amount must be bigger then 0");
+        sc_try!(self.require_debt_token_issued());
 
         let caller = self.blockchain().get_caller();
         let debt_token_id = self.debt_token_id().get();
-        let asset = self.get_pool_asset();
-
-        let mut borrows_reserve = self
-            .reserves()
-            .get(&debt_token_id)
-            .unwrap_or_else(BigUint::zero);
-        let mut asset_reserve = self.reserves().get(&asset).unwrap_or_else(BigUint::zero);
-
-        require!(asset_reserve != 0, "asset reserve is empty");
+        let pool_asset_id = self.pool_asset_id().get();
 
         let position_id = self.get_nft_hash();
         let debt_metadata = DebtMetadata {
@@ -94,19 +87,13 @@ pub trait LiquidityPool {
 
         // send collateral requested to the user
 
-        self.send().direct(&caller, &asset, &amount, &[]);
-
-        borrows_reserve += &amount;
-        asset_reserve -= &amount;
+        self.send().direct(&caller, &pool_asset_id, &amount, &[]);
 
         // TODO: Decrease when repaying?
         self.total_borrow().update(|total| *total += &amount);
 
-        self.reserves().insert(debt_token_id, borrows_reserve);
-        self.reserves().insert(asset, asset_reserve);
-
         let current_health = self.compute_health_factor();
-        let debt_position = DebtPosition::<BigUint> {
+        let debt_position = DebtPosition {
             size: amount.clone(), // this will be initial L tokens amount
             health_factor: current_health,
             is_liquidated: false,
@@ -185,7 +172,7 @@ pub trait LiquidityPool {
     ) -> SCResult<RepayPostion<BigUint>> {
         require!(amount > 0, "amount must be greater then 0");
         require!(
-            asset == self.get_pool_asset(),
+            asset == self.pool_asset_id().get(),
             "asset is not supported by this pool"
         );
         require!(
@@ -239,6 +226,7 @@ pub trait LiquidityPool {
         Ok(repay_position)
     }
 
+    /*
     // Might remove or merge with the repay function
     #[payable("*")]
     #[endpoint]
@@ -255,7 +243,7 @@ pub trait LiquidityPool {
         );*/
         require!(amount > 0, "amount must be bigger then 0");
 
-        let pool_asset = self.get_pool_asset();
+        let pool_asset = self.pool_asset_id().get();
         let mut asset_reserve = self
             .reserves()
             .get(&pool_asset)
@@ -273,6 +261,7 @@ pub trait LiquidityPool {
 
         Ok(())
     }
+    */
 
     #[payable("*")]
     #[endpoint(liquidate)]
@@ -284,7 +273,7 @@ pub trait LiquidityPool {
     ) -> SCResult<LiquidateData<BigUint>> {
         require!(amount > 0, "amount must be bigger then 0");
         require!(
-            token == self.get_pool_asset(),
+            token == self.pool_asset_id().get(),
             "asset is not supported by this pool"
         );
 
@@ -342,24 +331,26 @@ pub trait LiquidityPool {
         let token_ticker = BoxedBytes::from(STABLE_COIN_TICKER);
         let initial_supply = BigUint::from(1u32);
 
-        Ok(ESDTSystemSmartContractProxy::new().issue_fungible(
-            issue_cost,
-            &token_display_name,
-            &token_ticker,
-            &initial_supply,
-            FungibleTokenProperties {
-                can_burn: true,
-                can_mint: true,
-                num_decimals: 0,
-                can_freeze: true,
-                can_wipe: true,
-                can_pause: true,
-                can_change_owner: true,
-                can_upgrade: true,
-                can_add_special_roles: true,
-            },
-        ).async_call()
-        .with_callback(self.callbacks().issue_callback(token_ticker)))
+        Ok(ESDTSystemSmartContractProxy::new()
+            .issue_fungible(
+                issue_cost,
+                &token_display_name,
+                &token_ticker,
+                &initial_supply,
+                FungibleTokenProperties {
+                    can_burn: true,
+                    can_mint: true,
+                    num_decimals: 0,
+                    can_freeze: true,
+                    can_wipe: true,
+                    can_pause: true,
+                    can_change_owner: true,
+                    can_upgrade: true,
+                    can_add_special_roles: true,
+                },
+            )
+            .async_call()
+            .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
     #[payable("EGLD")]
@@ -395,21 +386,20 @@ pub trait LiquidityPool {
         #[var_args] roles: VarArgs<EsdtLocalRole>,
     ) -> SCResult<AsyncCall<BigUint>> {
         only_owner!(self, "only owner can set roles");
-        require!(
-            !self.stablecoin_token_id().is_empty(),
-            "token not issued yet"
-        );
-        Ok(self.set_roles(self.stablecoin_token_id().get(), roles))
+        sc_try!(self.require_stablecoin_issued());
+
+        Ok(self.set_roles(self.stablecoin_token_id().get(), roles.as_slice()))
     }
 
-    #[endpoint(setBorrowTokenRoles)]
-    fn set_borrow_token_roles(
+    #[endpoint(setDebtTokenRoles)]
+    fn set_debt_token_roles(
         &self,
         #[var_args] roles: VarArgs<EsdtLocalRole>,
     ) -> SCResult<AsyncCall<BigUint>> {
         only_owner!(self, "only owner can set roles");
-        require!(!self.debt_token_id().is_empty(), "token not issued yet");
-        Ok(self.set_roles(self.debt_token_id().get(), roles))
+        sc_try!(self.require_debt_token_issued());
+
+        Ok(self.set_roles(self.debt_token_id().get(), roles.as_slice()))
     }
 
     fn issue(
@@ -438,16 +428,12 @@ pub trait LiquidityPool {
             .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
-    fn set_roles(
-        &self,
-        token: TokenIdentifier,
-        #[var_args] roles: VarArgs<EsdtLocalRole>,
-    ) -> AsyncCall<BigUint> {
+    fn set_roles(&self, token: TokenIdentifier, roles: &[EsdtLocalRole]) -> AsyncCall<BigUint> {
         ESDTSystemSmartContractProxy::new()
             .set_special_roles(
                 &self.blockchain().get_sc_address(),
                 token.as_esdt_identifier(),
-                roles.as_slice(),
+                roles,
             )
             .async_call()
     }
@@ -517,9 +503,20 @@ pub trait LiquidityPool {
     /// VIEWS
 
     #[view(getBorrowRate)]
-    fn get_borrow_rate(&self) -> BigUint {
+    fn get_borrow_rate(&self, #[var_args] utilisation: OptionalArg<BigUint>) -> BigUint {
         let reserve_data = self.reserve_data().get();
-        self._get_borrow_rate(reserve_data, OptionalArg::None)
+
+        let u_current = utilisation
+            .into_option()
+            .unwrap_or_else(|| self.get_capital_utilisation());
+
+        self.library_module().compute_borrow_rate(
+            reserve_data.r_base,
+            reserve_data.r_slope1,
+            reserve_data.r_slope2,
+            reserve_data.u_optimal,
+            u_current,
+        )
     }
 
     #[view(getDepositRate)]
@@ -527,8 +524,7 @@ pub trait LiquidityPool {
         let utilisation = self.get_capital_utilisation();
         let reserve_data = self.reserve_data().get();
         let reserve_factor = reserve_data.reserve_factor.clone();
-        let borrow_rate =
-            self._get_borrow_rate(reserve_data, OptionalArg::Some(utilisation.clone()));
+        let borrow_rate = self.get_borrow_rate(OptionalArg::Some(utilisation.clone()));
 
         self.library_module()
             .compute_deposit_rate(utilisation, borrow_rate, reserve_factor)
@@ -539,31 +535,29 @@ pub trait LiquidityPool {
         let now = self.blockchain().get_block_timestamp();
         let time_diff = BigUint::from(now - timestamp);
 
-        let borrow_rate = self.get_borrow_rate();
+        let borrow_rate = self.get_borrow_rate(OptionalArg::None);
 
         self.library_module()
             .compute_debt(amount, time_diff, borrow_rate)
     }
 
+    // Reminder to think if this function is needed
     #[view(getCapitalUtilisation)]
     fn get_capital_utilisation(&self) -> BigUint {
-        let reserve_amount = self.get_reserve();
+        let reserve_amount = self.get_total_locked_pool_asset();
         let borrowed_amount = self.total_borrow().get();
 
         self.library_module()
             .compute_capital_utilisation(borrowed_amount, reserve_amount)
     }
 
-    #[view(getReserve)]
-    fn get_reserve(&self) -> BigUint {
-        self.reserves()
-            .get(&self.pool_asset_id().get())
-            .unwrap_or_else(BigUint::zero)
-    }
-
-    #[view(poolAsset)]
-    fn get_pool_asset(&self) -> TokenIdentifier {
-        self.pool_asset_id().get()
+    #[view(getTotalLockedPoolAsset)]
+    fn get_total_locked_pool_asset(&self) -> BigUint {
+        self.blockchain().get_esdt_balance(
+            &self.blockchain().get_sc_address(),
+            self.pool_asset_id().get().as_esdt_identifier(),
+            0,
+        )
     }
 
     // UTILS
@@ -583,22 +577,20 @@ pub trait LiquidityPool {
         0
     }
 
-    fn _get_borrow_rate(
-        &self,
-        reserve_data: ReserveData<BigUint>,
-        #[var_args] utilisation: OptionalArg<BigUint>,
-    ) -> BigUint {
-        let u_current = utilisation
-            .into_option()
-            .unwrap_or_else(|| self.get_capital_utilisation());
+    fn require_debt_token_issued(&self) -> SCResult<()> {
+        if self.debt_token_id().is_empty() {
+            sc_error!("Debt token must be issued first")
+        } else {
+            Ok(())
+        }
+    }
 
-        self.library_module().compute_borrow_rate(
-            reserve_data.r_base,
-            reserve_data.r_slope1,
-            reserve_data.r_slope2,
-            reserve_data.u_optimal,
-            u_current,
-        )
+    fn require_stablecoin_issued(&self) -> SCResult<()> {
+        if self.stablecoin_token_id().is_empty() {
+            sc_error!("Stablecoin token must be issued first")
+        } else {
+            Ok(())
+        }
     }
 
     //
@@ -614,15 +606,10 @@ pub trait LiquidityPool {
     fn pool_asset_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
     //
-    /// borrow token supported for collateral
+    /// debt token supported for collateral
     #[view(getDebtTokenId)]
     #[storage_mapper("debtTokenId")]
     fn debt_token_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
-
-    //
-    /// pool reserves
-    #[storage_mapper("reserves")]
-    fn reserves(&self) -> MapMapper<Self::Storage, TokenIdentifier, BigUint>;
 
     //
     /// debt positions
@@ -646,7 +633,7 @@ pub trait LiquidityPool {
 
     //
     /// health factor threshold
-    #[view(healthFactorThreshold)]
+    #[view(getHealthFactorThreshold)]
     #[storage_mapper("healthFactorThreshold")]
     fn health_factor_threshold(&self) -> SingleValueMapper<Self::Storage, u32>;
 

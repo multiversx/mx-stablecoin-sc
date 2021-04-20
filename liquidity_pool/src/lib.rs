@@ -523,11 +523,10 @@ pub trait LiquidityPool {
     fn get_deposit_rate(&self) -> BigUint {
         let utilisation = self.get_capital_utilisation();
         let reserve_data = self.reserve_data().get();
-        let reserve_factor = reserve_data.reserve_factor.clone();
         let borrow_rate = self.get_borrow_rate(OptionalArg::Some(utilisation.clone()));
 
         self.library_module()
-            .compute_deposit_rate(utilisation, borrow_rate, reserve_factor)
+            .compute_deposit_rate(utilisation, borrow_rate, reserve_data.reserve_factor)
     }
 
     #[view(getDebtInterest)]

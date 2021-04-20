@@ -51,7 +51,7 @@ pub trait LiquidityPool {
     ) -> SCResult<()> {
         require!(amount > 0, "amount must be bigger then 0");
 
-        let caller = self.get_caller();
+        let caller = self.blockchain().get_caller();
         let debt_token_id = self.debt_token_id().get();
         let asset = self.get_pool_asset();
 
@@ -67,23 +67,30 @@ pub trait LiquidityPool {
         let debt_metadata = DebtMetadata {
             collateral_amount: amount.clone(),
             collateral_identifier: collateral_id.clone(),
-            collateral_timestamp: self.get_block_timestamp(),
+            collateral_timestamp: self.blockchain().get_block_timestamp(),
         };
 
         self.mint_debt(&amount, &debt_metadata, &position_id);
 
-        let nonce = self
-            .get_current_esdt_nft_nonce(&self.get_sc_address(), debt_token_id.as_esdt_identifier());
+        let nonce = self.blockchain().get_current_esdt_nft_nonce(
+            &self.blockchain().get_sc_address(),
+            debt_token_id.as_esdt_identifier(),
+        );
 
         // send debt position tokens
 
-        self.send().direct_esdt_nft_via_transfer_exec(
+        match self.send().direct_esdt_nft_via_transfer_exec(
             &caller,
             &debt_token_id.as_esdt_identifier(),
             nonce,
             &amount,
             &[],
-        );
+        ) {
+            Result::Ok(()) => {}
+            Result::Err(_) => {
+                return sc_error!("Failed to send debt tokens");
+            }
+        };
 
         // send collateral requested to the user
 
@@ -125,8 +132,8 @@ pub trait LiquidityPool {
         );
 
         let nft_nonce = self.call_value().esdt_token_nonce();
-        let esdt_nft_data = self.get_esdt_token_data(
-            &self.get_sc_address(),
+        let esdt_nft_data = self.blockchain().get_esdt_token_data(
+            &self.blockchain().get_sc_address(),
             debt_token.as_esdt_identifier(),
             nft_nonce,
         );
@@ -152,7 +159,7 @@ pub trait LiquidityPool {
         ]
         .concat();
 
-        let unique_repay_id = self.keccak256(&data);
+        let unique_repay_id = self.crypto().keccak256(&data);
         let repay_position = RepayPostion {
             identifier: debt_token,
             amount,
@@ -192,8 +199,8 @@ pub trait LiquidityPool {
             "b tokens amount locked must be equal with the amount of asset token send"
         );
 
-        let esdt_nft_data = self.get_esdt_token_data(
-            &self.get_sc_address(),
+        let esdt_nft_data = self.blockchain().get_esdt_token_data(
+            &self.blockchain().get_sc_address(),
             repay_position.identifier.as_esdt_identifier(),
             repay_position.nonce,
         );
@@ -224,11 +231,7 @@ pub trait LiquidityPool {
                 .insert(unique_id, repay_position.clone());
         }
 
-        self.burn(
-            &amount,
-            repay_position.nonce,
-            &repay_position.identifier,
-        );
+        self.burn(&amount, repay_position.nonce, &repay_position.identifier);
 
         repay_position.amount = amount;
 
@@ -243,7 +246,7 @@ pub trait LiquidityPool {
         #[payment_token] lend_token: TokenIdentifier,
         #[payment] amount: BigUint,
     ) -> SCResult<()> {
-        let caller = self.get_caller();
+        let caller = self.blockchain().get_caller();
 
         /*require!(
             lend_token == self.get_lend_token(),
@@ -262,8 +265,7 @@ pub trait LiquidityPool {
         let nonce = self.call_value().esdt_token_nonce();
         self.burn(&amount, nonce, &lend_token);
 
-        self.send()
-            .direct(&caller, &pool_asset, &amount, &[]);
+        self.send().direct(&caller, &pool_asset, &amount, &[]);
 
         asset_reserve -= amount;
         self.reserves().insert(pool_asset, asset_reserve);
@@ -300,7 +302,10 @@ pub trait LiquidityPool {
             "the health factor is not low enough"
         );
 
-        let interest = self.get_debt_interest(debt_position.size.clone(), debt_position.collateral_timestamp);
+        let interest = self.get_debt_interest(
+            debt_position.size.clone(),
+            debt_position.collateral_timestamp,
+        );
 
         require!(
             debt_position.size.clone() + interest == amount,
@@ -406,7 +411,7 @@ pub trait LiquidityPool {
     ) -> AsyncCall<BigUint> {
         ESDTSystemSmartContractProxy::new()
             .set_special_roles(
-                &self.get_sc_address(),
+                &self.blockchain().get_sc_address(),
                 token.as_esdt_identifier(),
                 roles.as_slice(),
             )
@@ -430,7 +435,7 @@ pub trait LiquidityPool {
                 }
             }
             AsyncCallResult::Err(_) => {
-                let caller = self.get_owner_address();
+                let caller = self.blockchain().get_owner_address();
                 if token_id.is_egld() && returned_tokens > 0 {
                     self.send().direct_egld(&caller, &returned_tokens, &[]);
                 }
@@ -440,7 +445,7 @@ pub trait LiquidityPool {
 
     fn mint_debt(&self, amount: &BigUint, metadata: &DebtMetadata<BigUint>, position_id: &H256) {
         self.send().esdt_nft_create::<DebtMetadata<BigUint>>(
-            self.get_gas_left(),
+            self.blockchain().get_gas_left(),
             self.debt_token_id().get().as_esdt_identifier(),
             &amount,
             &BoxedBytes::empty(),
@@ -453,7 +458,7 @@ pub trait LiquidityPool {
 
     fn burn(&self, amount: &BigUint, nonce: u64, ticker: &TokenIdentifier) {
         self.send().esdt_nft_burn(
-            self.get_gas_left(),
+            self.blockchain().get_gas_left(),
             ticker.as_esdt_identifier(),
             nonce,
             &amount,
@@ -461,13 +466,13 @@ pub trait LiquidityPool {
     }
 
     fn send_callback_result(&self, token_id: &TokenIdentifier, endpoint: &[u8]) {
-        let owner = self.get_owner_address();
+        let owner = self.blockchain().get_owner_address();
 
         let mut args = ArgBuffer::new();
         args.push_argument_bytes(token_id.as_esdt_identifier());
 
         self.send().execute_on_dest_context_raw(
-            self.get_gas_left(),
+            self.blockchain().get_gas_left(),
             &owner,
             &BigUint::zero(),
             endpoint,
@@ -497,7 +502,7 @@ pub trait LiquidityPool {
 
     #[view(getDebtInterest)]
     fn get_debt_interest(&self, amount: BigUint, timestamp: u64) -> BigUint {
-        let now = self.get_block_timestamp();
+        let now = self.blockchain().get_block_timestamp();
         let time_diff = BigUint::from(now - timestamp);
 
         let borrow_rate = self.get_borrow_rate();
@@ -531,7 +536,7 @@ pub trait LiquidityPool {
 
     fn get_nft_hash(&self) -> H256 {
         let debt_nonce = self.debt_nonce().get();
-        let hash = self.keccak256(&debt_nonce.to_be_bytes()[..]);
+        let hash = self.crypto().keccak256(&debt_nonce.to_be_bytes()[..]);
         self.debt_nonce().set(&(debt_nonce + 1));
         hash
     }

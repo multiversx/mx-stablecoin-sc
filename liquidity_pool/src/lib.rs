@@ -99,6 +99,7 @@ pub trait LiquidityPool {
         borrows_reserve += &amount;
         asset_reserve -= &amount;
 
+        // TODO: Decrease when repaying?
         self.total_borrow().update(|total| *total += &amount);
 
         self.reserves().insert(debt_token_id, borrows_reserve);
@@ -331,28 +332,61 @@ pub trait LiquidityPool {
         &self,
         #[payment] issue_cost: BigUint,
     ) -> SCResult<AsyncCall<BigUint>> {
+        only_owner!(self, "only owner can issue new tokens");
         require!(
             self.stablecoin_token_id().is_empty(),
             "Stablecoin already issued"
         );
 
-        self.issue(
-            BoxedBytes::from(STABLE_COIN_NAME),
-            BoxedBytes::from(STABLE_COIN_TICKER),
+        let token_display_name = BoxedBytes::from(STABLE_COIN_NAME);
+        let token_ticker = BoxedBytes::from(STABLE_COIN_TICKER);
+        let initial_supply = BigUint::from(1u32);
+
+        Ok(ESDTSystemSmartContractProxy::new().issue_fungible(
             issue_cost,
-        )
+            &token_display_name,
+            &token_ticker,
+            &initial_supply,
+            FungibleTokenProperties {
+                can_burn: true,
+                can_mint: true,
+                num_decimals: 0,
+                can_freeze: true,
+                can_wipe: true,
+                can_pause: true,
+                can_change_owner: true,
+                can_upgrade: true,
+                can_add_special_roles: true,
+            },
+        ).async_call()
+        .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
     #[payable("EGLD")]
     #[endpoint(issueDebtToken)]
     fn issue_debt_token(&self, #[payment] issue_cost: BigUint) -> SCResult<AsyncCall<BigUint>> {
+        only_owner!(self, "only owner can issue new tokens");
         require!(self.debt_token_id().is_empty(), "Debt token already issued");
 
-        self.issue(
-            BoxedBytes::from(DEBT_TOKEN_NAME),
-            BoxedBytes::from(DEBT_TOKEN_TICKER),
-            issue_cost,
-        )
+        let token_display_name = BoxedBytes::from(DEBT_TOKEN_NAME);
+        let token_ticker = BoxedBytes::from(DEBT_TOKEN_TICKER);
+
+        Ok(ESDTSystemSmartContractProxy::new()
+            .issue_semi_fungible(
+                issue_cost,
+                &token_display_name,
+                &token_ticker,
+                SemiFungibleTokenProperties {
+                    can_freeze: true,
+                    can_wipe: true,
+                    can_pause: true,
+                    can_change_owner: true,
+                    can_upgrade: true,
+                    can_add_special_roles: true,
+                },
+            )
+            .async_call()
+            .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
     #[endpoint(setStablecoinRoles)]

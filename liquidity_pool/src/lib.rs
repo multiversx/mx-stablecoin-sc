@@ -471,21 +471,6 @@ pub trait LiquidityPool {
         );
     }
 
-    fn send_callback_result(&self, token_id: &TokenIdentifier, endpoint: &[u8]) {
-        let owner = self.blockchain().get_owner_address();
-
-        let mut args = ArgBuffer::new();
-        args.push_argument_bytes(token_id.as_esdt_identifier());
-
-        self.send().execute_on_dest_context_raw(
-            self.blockchain().get_gas_left(),
-            &owner,
-            &BigUint::zero(),
-            endpoint,
-            &args,
-        );
-    }
-
     /// VIEWS
 
     #[view(getDebtInterest)]

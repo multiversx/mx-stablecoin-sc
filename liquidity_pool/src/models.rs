@@ -7,23 +7,6 @@ pub struct InterestMetadata {
     pub timestamp: u64,
 }
 
-#[derive(TopEncode, TopDecode, TypeAbi)]
-pub struct ReserveData<BigUint: BigUintApi> {
-    /// base ratio
-    pub r_base: BigUint,
-
-    /// slope before optimal utilisation
-    pub r_slope1: BigUint,
-
-    /// slope after optimal utilisation
-    pub r_slope2: BigUint,
-
-    /// optimal capital utilisation
-    pub u_optimal: BigUint,
-
-    /// safety module percentage fee
-    pub reserve_factor: BigUint,
-}
 
 #[derive(NestedEncode, NestedDecode, TopEncode, TopDecode, TypeAbi, PartialEq, Clone)]
 pub struct DebtPosition<BigUint: BigUintApi> {

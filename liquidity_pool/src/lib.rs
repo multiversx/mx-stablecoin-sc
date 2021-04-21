@@ -1,8 +1,5 @@
 #![no_std]
 
-pub mod library;
-pub use library::*;
-
 pub mod models;
 pub use models::*;
 
@@ -15,31 +12,20 @@ const STABLE_COIN_TICKER: &[u8] = b"STCOIN";
 const DEBT_TOKEN_NAME: &[u8] = b"DebtBearing";
 const DEBT_TOKEN_TICKER: &[u8] = b"DEBT";
 
+pub const BASE_PRECISION: u32 = 1_000_000_000;
+pub const SECONDS_IN_YEAR: u32 = 31_556_926;
+
 #[elrond_wasm_derive::contract(LiquidityPoolImpl)]
 pub trait LiquidityPool {
-    #[module(LibraryModuleImpl)]
-    fn library_module(&self) -> LibraryModuleImpl<T, BigInt, BigUint>;
-
     #[init]
     fn init(
         &self,
         asset: TokenIdentifier,
-        r_base: BigUint,
-        r_slope1: BigUint,
-        r_slope2: BigUint,
-        u_optimal: BigUint,
-        reserve_factor: BigUint,
+        borrow_rate: BigUint
     ) {
-        self.library_module().init();
         self.pool_asset_id().set(&asset);
+        self.borrow_rate().set(&borrow_rate);
         self.debt_nonce().set(&1u64);
-        self.reserve_data().set(&ReserveData {
-            r_base,
-            r_slope1,
-            r_slope2,
-            u_optimal,
-            reserve_factor,
-        });
     }
 
     #[payable("*")]
@@ -502,61 +488,29 @@ pub trait LiquidityPool {
 
     /// VIEWS
 
-    #[view(getBorrowRate)]
-    fn get_borrow_rate(&self, #[var_args] utilisation: OptionalArg<BigUint>) -> BigUint {
-        let reserve_data = self.reserve_data().get();
-
-        let u_current = utilisation
-            .into_option()
-            .unwrap_or_else(|| self.get_capital_utilisation());
-
-        self.library_module().compute_borrow_rate(
-            reserve_data.r_base,
-            reserve_data.r_slope1,
-            reserve_data.r_slope2,
-            reserve_data.u_optimal,
-            u_current,
-        )
-    }
-
-    #[view(getDepositRate)]
-    fn get_deposit_rate(&self) -> BigUint {
-        let utilisation = self.get_capital_utilisation();
-        let reserve_data = self.reserve_data().get();
-        let borrow_rate = self.get_borrow_rate(OptionalArg::Some(utilisation.clone()));
-
-        self.library_module()
-            .compute_deposit_rate(utilisation, borrow_rate, reserve_data.reserve_factor)
-    }
-
     #[view(getDebtInterest)]
     fn get_debt_interest(&self, amount: BigUint, timestamp: u64) -> BigUint {
         let now = self.blockchain().get_block_timestamp();
         let time_diff = BigUint::from(now - timestamp);
 
-        let borrow_rate = self.get_borrow_rate(OptionalArg::None);
+        let borrow_rate = self.borrow_rate().get();
 
-        self.library_module()
-            .compute_debt(amount, time_diff, borrow_rate)
-    }
-
-    // Reminder to think if this function is needed
-    #[view(getCapitalUtilisation)]
-    fn get_capital_utilisation(&self) -> BigUint {
-        let reserve_amount = self.get_total_locked_pool_asset();
-        let borrowed_amount = self.total_borrow().get();
-
-        self.library_module()
-            .compute_capital_utilisation(borrowed_amount, reserve_amount)
+        self.compute_debt(&amount, &time_diff, &borrow_rate)
     }
 
     #[view(getTotalLockedPoolAsset)]
     fn get_total_locked_pool_asset(&self) -> BigUint {
-        self.blockchain().get_esdt_balance(
-            &self.blockchain().get_sc_address(),
-            self.pool_asset_id().get().as_esdt_identifier(),
-            0,
-        )
+        let pool_asset_id = self.pool_asset_id().get();
+
+        if pool_asset_id.is_egld() {
+            self.blockchain().get_sc_balance()
+        } else {
+            self.blockchain().get_esdt_balance(
+                &self.blockchain().get_sc_address(),
+                pool_asset_id.as_esdt_identifier(),
+                0,
+            )
+        }
     }
 
     // UTILS
@@ -576,6 +530,11 @@ pub trait LiquidityPool {
         0
     }
 
+    /// Rate of 1:1 for the purpose of mocking
+    fn get_collateral_to_dollar_ratio(&self) -> BigUint {
+        BigUint::from(1u32)
+    }
+
     fn require_debt_token_issued(&self) -> SCResult<()> {
         if self.debt_token_id().is_empty() {
             sc_error!("Debt token must be issued first")
@@ -589,6 +548,28 @@ pub trait LiquidityPool {
             sc_error!("Stablecoin token must be issued first")
         } else {
             Ok(())
+        }
+    }
+
+    fn compute_debt(
+        &self,
+        amount: &BigUint,
+        time_diff: &BigUint,
+        borrow_rate: &BigUint,
+    ) -> BigUint {
+        let base_precision = BigUint::from(BASE_PRECISION);
+        let secs_year = BigUint::from(SECONDS_IN_YEAR);
+        let time_unit_percentage = (time_diff * &base_precision) / secs_year;
+
+        let debt_percentage = (&time_unit_percentage * borrow_rate) / base_precision.clone();
+
+        if debt_percentage <= base_precision {
+            let amount_diff =
+                ((&base_precision - &debt_percentage) * amount.clone()) / base_precision;
+
+            amount - &amount_diff
+        } else {
+            (&debt_percentage * amount) / base_precision
         }
     }
 
@@ -626,11 +607,6 @@ pub trait LiquidityPool {
     fn repay_position(&self) -> MapMapper<Self::Storage, H256, RepayPostion<BigUint>>;
 
     //
-    /// reserve data
-    #[storage_mapper("reserveData")]
-    fn reserve_data(&self) -> SingleValueMapper<Self::Storage, ReserveData<BigUint>>;
-
-    //
     /// health factor threshold
     #[view(getHealthFactorThreshold)]
     #[storage_mapper("healthFactorThreshold")]
@@ -641,4 +617,10 @@ pub trait LiquidityPool {
     #[view(getTotalBorrow)]
     #[storage_mapper("totalBorrow")]
     fn total_borrow(&self) -> SingleValueMapper<Self::Storage, BigUint>;
+
+    //
+    // 
+    #[view(getBorrowRate)]
+    #[storage_mapper("borrowRate")]
+    fn borrow_rate(&self) -> SingleValueMapper<Self::Storage, BigUint>;
 }

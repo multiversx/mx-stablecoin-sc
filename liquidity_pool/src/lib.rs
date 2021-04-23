@@ -18,7 +18,12 @@ pub const SECONDS_IN_YEAR: u32 = 31_556_926;
 #[elrond_wasm_derive::contract(LiquidityPoolImpl)]
 pub trait LiquidityPool {
     #[init]
-    fn init(&self, asset: TokenIdentifier, borrow_rate: BigUint) -> SCResult<()> {
+    fn init(
+        &self,
+        asset: TokenIdentifier,
+        borrow_rate: BigUint,
+        health_factor_threshold: u32,
+    ) -> SCResult<()> {
         require!(
             borrow_rate < BigUint::from(BASE_PRECISION),
             "Invalid borrow rate"
@@ -30,6 +35,7 @@ pub trait LiquidityPool {
 
         self.pool_asset_id().set(&asset);
         self.borrow_rate().set(&borrow_rate);
+        self.health_factor_threshold().set(&health_factor_threshold);
         self.debt_nonce().set(&1u64);
 
         Ok(())
@@ -92,7 +98,7 @@ pub trait LiquidityPool {
         self.total_circulating_supply()
             .update(|total| *total += &stablecoin_amount);
 
-        let current_health = self.compute_health_factor();
+        let current_health = self.compute_health_factor(&collateral_id);
         let debt_position = DebtPosition {
             health_factor: current_health,
             is_liquidated: false,
@@ -273,7 +279,7 @@ pub trait LiquidityPool {
             "position is already liquidated"
         );
         require!(
-            debt_position.health_factor < self.get_health_factor_threshold(),
+            debt_position.health_factor < self.health_factor_threshold().get(),
             "the health factor is not low enough"
         );
 
@@ -305,6 +311,10 @@ pub trait LiquidityPool {
 
         self.debt_position(&position_id)
             .update(|d| d.is_liquidated = true);
+
+        // decrease circulating supply
+        self.total_circulating_supply()
+            .update(|circulating_supply| *circulating_supply -= &payment_amount);
 
         Ok(())
     }
@@ -394,32 +404,6 @@ pub trait LiquidityPool {
         sc_try!(self.require_debt_token_issued());
 
         Ok(self.set_roles(self.debt_token_id().get(), roles.as_slice()))
-    }
-
-    fn issue(
-        &self,
-        token_display_name: BoxedBytes,
-        token_ticker: BoxedBytes,
-        issue_cost: BigUint,
-    ) -> SCResult<AsyncCall<BigUint>> {
-        only_owner!(self, "only owner can issue new tokens");
-
-        Ok(ESDTSystemSmartContractProxy::new()
-            .issue_semi_fungible(
-                issue_cost,
-                &token_display_name,
-                &token_ticker,
-                SemiFungibleTokenProperties {
-                    can_freeze: true,
-                    can_wipe: true,
-                    can_pause: true,
-                    can_change_owner: true,
-                    can_upgrade: true,
-                    can_add_special_roles: true,
-                },
-            )
-            .async_call()
-            .with_callback(self.callbacks().issue_callback(token_ticker)))
     }
 
     fn set_roles(&self, token: TokenIdentifier, roles: &[EsdtLocalRole]) -> AsyncCall<BigUint> {
@@ -546,11 +530,7 @@ pub trait LiquidityPool {
         hash
     }
 
-    fn compute_health_factor(&self) -> u32 {
-        0
-    }
-
-    fn get_health_factor_threshold(&self) -> u32 {
+    fn compute_health_factor(&self, _collateral_id: &TokenIdentifier) -> u32 {
         0
     }
 

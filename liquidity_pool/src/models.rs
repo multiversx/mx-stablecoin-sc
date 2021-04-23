@@ -17,15 +17,3 @@ pub struct RepayPosition<BigUint: BigUintApi> {
     pub nft_nonce: u64,
     pub debt_paid: BigUint,
 }
-
-#[derive(TopEncode, TopDecode, TypeAbi)]
-pub struct LiquidateData<BigUint: BigUintApi> {
-    pub collateral_id: TokenIdentifier,
-    pub amount: BigUint,
-}
-
-#[derive(TopEncode, TopDecode, TypeAbi, Clone)]
-pub struct DebtMetadata {
-    pub collateral_id: TokenIdentifier,
-    pub collateral_timestamp: u64,
-}

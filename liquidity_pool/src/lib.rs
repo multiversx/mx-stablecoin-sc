@@ -54,12 +54,8 @@ pub trait LiquidityPool {
         require!(collateral_amount > 0, "amount must be bigger then 0");
 
         let position_id = self.get_nft_hash();
-        let debt_metadata = DebtMetadata {
-            collateral_id: collateral_id.clone(),
-            collateral_timestamp: self.blockchain().get_block_timestamp(),
-        };
 
-        self.mint_debt(&collateral_amount, &debt_metadata, &position_id);
+        self.mint_debt(&collateral_amount, &position_id);
 
         let caller = self.blockchain().get_caller();
         let nonce = self.blockchain().get_current_esdt_nft_nonce(
@@ -100,7 +96,7 @@ pub trait LiquidityPool {
         let debt_position = DebtPosition {
             health_factor: current_health,
             is_liquidated: false,
-            collateral_timestamp: debt_metadata.collateral_timestamp,
+            collateral_timestamp: self.blockchain().get_block_timestamp(),
             collateral_amount,
             collateral_id,
         };
@@ -140,13 +136,6 @@ pub trait LiquidityPool {
         let debt_position = self.debt_position(position_id).get();
         require!(!debt_position.is_liquidated, "position is liquidated");
 
-        let metadata = match esdt_nft_data.decode_attributes::<DebtMetadata>() {
-            Result::Ok(decoded) => decoded,
-            Result::Err(_) => {
-                return sc_error!("could not parse token metadata");
-            }
-        };
-
         let caller = self.blockchain().get_caller();
 
         if !self.repay_position(&caller, position_id).is_empty() {
@@ -164,7 +153,7 @@ pub trait LiquidityPool {
                 .set(&repay_position);
         }
 
-        Ok(*position_id)
+        Ok(position_id.clone())
     }
 
     #[payable("*")]
@@ -224,12 +213,15 @@ pub trait LiquidityPool {
             // Refund extra tokens paid
             let extra_payment = &total_debt_paid - &total_owed;
             if extra_payment > 0 {
-                self.send().direct_esdt_via_transf_exec(
+                match self.send().direct_esdt_via_transf_exec(
                     &caller,
                     token_id.as_esdt_identifier(),
                     &extra_payment,
                     &[],
-                );
+                ) {
+                    Result::Ok(()) => {}
+                    Result::Err(_) => return sc_error!("Failed refunding extra tokens"),
+                };
             }
 
             // Send repaid collateral back to the caller
@@ -257,24 +249,24 @@ pub trait LiquidityPool {
     }
 
     #[payable("*")]
-    #[endpoint(liquidate)]
+    #[endpoint]
     fn liquidate(
         &self,
         position_id: H256,
-        #[payment_token] token: TokenIdentifier,
-        #[payment] amount: BigUint,
-    ) -> SCResult<LiquidateData<BigUint>> {
-        require!(amount > 0, "amount must be bigger then 0");
+        #[payment_token] token_id: TokenIdentifier,
+        #[payment] payment_amount: BigUint,
+    ) -> SCResult<()> {
+        require!(payment_amount > 0, "amount must be bigger then 0");
         require!(
-            token == self.pool_asset_id().get(),
-            "asset is not supported by this pool"
+            token_id == self.stablecoin_token_id().get(),
+            "can only pay with stablecoins"
         );
         require!(
             !self.debt_position(&position_id).is_empty(),
             "invalid debt position id"
         );
 
-        let mut debt_position = self.debt_position(&position_id).get();
+        let debt_position = self.debt_position(&position_id).get();
 
         require!(
             !debt_position.is_liquidated,
@@ -285,26 +277,36 @@ pub trait LiquidityPool {
             "the health factor is not low enough"
         );
 
-        let interest = self.get_debt_interest(
-            &debt_position.initial_amount,
+        let caller = self.blockchain().get_caller();
+        let debt_interest = self.get_debt_interest(
+            &debt_position.collateral_amount,
             debt_position.collateral_timestamp,
         );
+        let total_owed = &debt_position.collateral_amount + &debt_interest;
 
         require!(
-            debt_position.initial_amount.clone() + interest == amount,
-            "position can't be liquidated, not enough or to much tokens send"
+            payment_amount >= total_owed,
+            "position can't be liquidated, not enough tokens sent"
         );
 
-        debt_position.is_liquidated = true;
+        // Refund extra tokens paid
+        let extra_payment = &payment_amount - &total_owed;
+        if extra_payment > 0 {
+            match self.send().direct_esdt_via_transf_exec(
+                &caller,
+                token_id.as_esdt_identifier(),
+                &extra_payment,
+                &[],
+            ) {
+                Result::Ok(()) => {}
+                Result::Err(_) => return sc_error!("Failed refunding extra tokens"),
+            };
+        }
 
-        self.debt_position(&position_id).set(&debt_position);
+        self.debt_position(&position_id)
+            .update(|d| d.is_liquidated = true);
 
-        let liquidate_data = LiquidateData {
-            collateral_id: debt_position.collateral_id,
-            amount,
-        };
-
-        Ok(liquidate_data)
+        Ok(())
     }
 
     #[payable("EGLD")]
@@ -455,15 +457,15 @@ pub trait LiquidityPool {
         }
     }
 
-    fn mint_debt(&self, amount: &BigUint, metadata: &DebtMetadata, position_id: &H256) {
-        self.send().esdt_nft_create::<DebtMetadata>(
+    fn mint_debt(&self, amount: &BigUint, position_id: &H256) {
+        self.send().esdt_nft_create::<()>(
             self.blockchain().get_gas_left(),
             self.debt_token_id().get().as_esdt_identifier(),
             &amount,
             &BoxedBytes::empty(),
             &BigUint::zero(),
             &position_id,
-            &metadata,
+            &(),
             &[BoxedBytes::empty()],
         );
     }

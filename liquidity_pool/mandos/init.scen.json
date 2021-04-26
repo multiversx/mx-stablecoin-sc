@@ -6,7 +6,7 @@
             "accounts": {
                 "address:owner": {
                     "nonce": "0",
-                    "balance": "1,000,000",
+                    "balance": "0",
                     "storage": {}
                 }
             },
@@ -28,7 +28,8 @@
                 "contractCode": "file:../output/liquidity-pool.wasm",
                 "arguments": [
                     "str:EGLD",
-                    "500000000"
+                    "500000000",
+                    "5"
                 ],
                 "gasLimit": "1,000,000",
                 "gasPrice": "0"
@@ -45,7 +46,7 @@
             "accounts": {
                 "address:owner": {
                     "nonce": "1",
-                    "balance": "1,000,000",
+                    "balance": "0",
                     "storage": {}
                 },
                 "sc:liqpool": {
@@ -54,7 +55,7 @@
                     "storage": {
                         "str:poolAssetId": "str:EGLD",
                         "str:borrowRate": "500000000",
-                        "str:debtNonce": "1"
+                        "str:healthFactorThreshold": "5"
                     },
                     "code": "file:../output/liquidity-pool.wasm"
                 }
@@ -62,27 +63,42 @@
         },
         {
             "step": "setState",
-            "comment": "set state to mock ESDT/NFT issue",
             "accounts": {
                 "address:owner": {
                     "nonce": "1",
-                    "balance": "1,000,000",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:user": {
+                    "nonce": "0",
+                    "balance": "1,000",
                     "storage": {}
                 },
                 "sc:liqpool": {
                     "nonce": "0",
                     "balance": "0",
                     "esdt": {
-                        "str:STCOIN": "1",
+                        "str:STCOIN": {
+                            "balance": "1",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
                         "str:DEBT": {
-                            "nonce": "1",
-                            "balance": "0"
+                            "balance": "0",
+                            "lastNonce": "1",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ]
                         }
                     },
                     "storage": {
                         "str:poolAssetId": "str:EGLD",
                         "str:borrowRate": "500000000",
-                        "str:debtNonce": "1",
+                        "str:healthFactorThreshold": "5",
                         "str:debtTokenId": "str:DEBT",
                         "str:stablecoinTokenId": "str:STCOIN"
                     },

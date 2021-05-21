@@ -1,31 +1,37 @@
 {
-    "name": "repay ok",
+    "name": "lock debt tokens ok",
     "gasSchedule": "dummy",
     "steps": [
         {
             "step": "externalSteps",
-            "path": "lock-debt-tokens-ok.scen.json"
+            "path": "borrow-ok.scen.json"
+        },
+        {
+            "step": "setState",
+            "comment": "31,556,926 difference between borrow and repay, which is 1 year",
+            "currentBlockInfo": {
+                "blockTimestamp": "31,656,926"
+            }
         },
         {
             "step": "scCall",
-            "txId": "repay part of asset",
+            "txId": "lock debt tokens",
             "tx": {
                 "from": "address:user",
                 "to": "sc:liqpool",
                 "value": "0",
                 "esdt": {
-                    "tokenIdentifier": "str:STCOIN",
-                    "value": "150"
+                    "tokenIdentifier": "str:DEBT",
+                    "nonce": "1",
+                    "value": "100"
                 },
-                "function": "repay",
-                "arguments": [
-                    "1"
-                ],
+                "function": "lockDebtTokens",
+                "arguments": [],
                 "gasLimit": "100,000,000",
                 "gasPrice": "0"
             },
             "expect": {
-                "out": [],
+                "out": [ "1" ],
                 "status": "0",
                 "message": "",
                 "gas": "*",
@@ -36,10 +42,10 @@
             "step": "checkState",
             "accounts": {
                 "address:user": {
-                    "nonce": "3",
-                    "balance": "700",
+                    "nonce": "2",
+                    "balance": "600",
                     "esdt": {
-                        "str:STCOIN": "50",
+                        "str:STCOIN": "200",
                         "str:DEBT": {
                             "instances": [
                                 {
@@ -54,7 +60,7 @@
                 },
                 "sc:liqpool": {
                     "nonce": "0",
-                    "balance": "300",
+                    "balance": "400",
                     "esdt": {
                         "str:STCOIN": {
                             "balance": "1",
@@ -74,7 +80,7 @@
                             "instances": [
                                 {
                                     "nonce": "1",
-                                    "balance": "0",
+                                    "balance": "100",
                                     "creator": "sc:liqpool"
                                 }
                             ]
@@ -87,15 +93,19 @@
                         "str:debtTokenId": "str:DEBT",
                         "str:stablecoinTokenId": "str:STCOIN",
 
-                        "str:totalCirculatingSupply": "50",
+                        "str:totalCirculatingSupply": "200",
                         "str:debtPosition|u64:1": {
                             "0-health_factor": "u32:0",
                             "1-is_liquidated": "u8:0",
                             "2-collateral_timestamp": "u64:100,000",
-                            "3-collateral_amount": "biguint:300",
+                            "3-collateral_amount": "biguint:400",
                             "4-collateral_id": "nested:str:EGLD"
                         },
-                        "str:repayPosition|address:user|u64:1": ""
+                        "str:repayPosition|address:user|u64:1": {
+                            "0-collateral_amount_to_withdraw": "biguint:100",
+                            "1-nft_nonce": "u64:1",
+                            "2-debt_paid": "biguint:0"
+                        }
                     },
                     "code": "file:../output/liquidity-pool.wasm"
                 },

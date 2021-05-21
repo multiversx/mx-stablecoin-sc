@@ -199,6 +199,10 @@ pub trait LiquidityPool {
         if total_debt_paid < total_owed {
             self.repay_position(&caller, position_id)
                 .update(|r| r.debt_paid = total_debt_paid);
+
+            // decrease circulating supply
+            self.total_circulating_supply()
+                .update(|circulating_supply| *circulating_supply -= &amount);
         } else {
             self.clear_after_full_repay(
                 &caller,
@@ -221,6 +225,8 @@ pub trait LiquidityPool {
                 };
             }
 
+            let amount_after_refund = amount - extra_payment;
+
             // Send repaid collateral back to the caller
             self.send().direct(
                 &caller,
@@ -238,12 +244,12 @@ pub trait LiquidityPool {
             );
 
             // burn received stablecoins
-            self.burn_stablecoin(&amount);
-        }
+            self.burn_stablecoin(&amount_after_refund);
 
-        // decrease circulating supply
-        self.total_circulating_supply()
-            .update(|circulating_supply| *circulating_supply -= &amount);
+            // decrease circulating supply
+            self.total_circulating_supply()
+                .update(|circulating_supply| *circulating_supply -= &amount_after_refund);
+        }
 
         Ok(())
     }
@@ -254,9 +260,8 @@ pub trait LiquidityPool {
         &self,
         position_id: u64,
         #[payment_token] token_id: TokenIdentifier,
-        #[payment] payment_amount: BigUint,
+        #[payment] amount: BigUint,
     ) -> SCResult<()> {
-        require!(payment_amount > 0, "amount must be bigger then 0");
         require!(
             token_id == self.stablecoin_token_id().get(),
             "can only pay with stablecoins"
@@ -278,19 +283,23 @@ pub trait LiquidityPool {
         );
 
         let caller = self.blockchain().get_caller();
-        let debt_interest = self.get_debt_interest(
+        let collateral_value_in_dollars = self.compute_collateral_value_in_dollars(
+            &debt_position.collateral_id,
             &debt_position.collateral_amount,
+        );
+        let debt_interest = self.get_debt_interest(
+            &collateral_value_in_dollars,
             debt_position.collateral_timestamp,
         );
-        let total_owed = &debt_position.collateral_amount + &debt_interest;
+        let total_owed = &collateral_value_in_dollars + &debt_interest;
 
         require!(
-            payment_amount >= total_owed,
+            amount >= total_owed,
             "position can't be liquidated, not enough tokens sent"
         );
 
         // Refund extra tokens paid
-        let extra_payment = &payment_amount - &total_owed;
+        let extra_payment = &amount - &total_owed;
         if extra_payment > 0 {
             match self.send().direct_esdt_via_transf_exec(
                 &caller,
@@ -303,12 +312,25 @@ pub trait LiquidityPool {
             };
         }
 
+        let amount_after_refund = amount - extra_payment;
+
         self.debt_position(position_id)
             .update(|d| d.is_liquidated = true);
 
         // decrease circulating supply
         self.total_circulating_supply()
-            .update(|circulating_supply| *circulating_supply -= &payment_amount);
+            .update(|circulating_supply| *circulating_supply -= &amount_after_refund);
+
+        // send collateral to liquidator
+        self.send().direct(
+            &caller,
+            &debt_position.collateral_id,
+            &debt_position.collateral_amount,
+            &[],
+        );
+
+        // burn received stablecoins
+        self.burn_stablecoin(&amount_after_refund);
 
         Ok(())
     }
@@ -470,12 +492,12 @@ pub trait LiquidityPool {
     /// VIEWS
 
     #[view(getDebtInterest)]
-    fn get_debt_interest(&self, amount: &BigUint, timestamp: u64) -> BigUint {
+    fn get_debt_interest(&self, value_in_dollars: &BigUint, timestamp: u64) -> BigUint {
         let now = self.blockchain().get_block_timestamp();
         let time_diff = BigUint::from(now - timestamp);
         let borrow_rate = self.borrow_rate().get();
 
-        self.compute_debt(amount, &time_diff, &borrow_rate)
+        self.compute_debt(value_in_dollars, &time_diff, &borrow_rate)
     }
 
     #[view(getTotalLockedPoolAsset)]
@@ -612,7 +634,7 @@ pub trait LiquidityPool {
     #[view(getTotalCirculatingSupply)]
     #[storage_mapper("totalCirculatingSupply")]
     fn total_circulating_supply(&self) -> SingleValueMapper<Self::Storage, BigUint>;
-    
+
     // Borrow rate of (0.5 * BASE_PRECISION) means only 50% of the amount calculated is sent
     #[view(getBorrowRate)]
     #[storage_mapper("borrowRate")]

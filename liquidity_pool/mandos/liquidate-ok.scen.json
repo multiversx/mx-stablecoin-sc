@@ -1,0 +1,160 @@
+{
+    "name": "liquidate ok",
+    "gasSchedule": "dummy",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "repay-ok.scen.json"
+        },
+        {
+            "step": "setState",
+            "comment": "For testing purposes, we're adding 1000 stablecoins for liquidator and 1000 to the circulating supply",
+            "accounts": {
+                "address:liquidator": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:STCOIN": "1000"
+                    },
+                    "storage": {}
+                },
+                "sc:liqpool": {
+                    "nonce": "0",
+                    "balance": "300",
+                    "esdt": {
+                        "str:STCOIN": {
+                            "balance": "1",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
+                        "str:DEBT": {
+                            "balance": "0",
+                            "lastNonce": "1",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ],
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "0",
+                                    "creator": "sc:liqpool"
+                                }
+                            ]
+                        }
+                    },
+                    "storage": {
+                        "str:poolAssetId": "str:EGLD",
+                        "str:borrowRate": "500000000",
+                        "str:healthFactorThreshold": "5",
+                        "str:debtTokenId": "str:DEBT",
+                        "str:stablecoinTokenId": "str:STCOIN",
+
+                        "str:totalCirculatingSupply": "1050",
+                        "str:debtPosition|u64:1": {
+                            "0-health_factor": "u32:0",
+                            "1-is_liquidated": "u8:0",
+                            "2-collateral_timestamp": "u64:100,000",
+                            "3-collateral_amount": "biguint:300",
+                            "4-collateral_id": "nested:str:EGLD"
+                        }
+                    },
+                    "code": "file:../output/liquidity-pool.wasm"
+                }
+            },
+            "currentBlockInfo": {
+                "blockTimestamp": "31,656,926"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "liquidate",
+            "tx": {
+                "from": "address:liquidator",
+                "to": "sc:liqpool",
+                "value": "0",
+                "esdt": {
+                    "tokenIdentifier": "str:STCOIN",
+                    "value": "450"
+                },
+                "function": "liquidate",
+                "arguments": [
+                    "1"
+                ],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "comment": "repay position is not cleared, we only set is_liquidated to true, i.e. u8:1",
+            "accounts": {
+                "address:liquidator": {
+                    "nonce": "1",
+                    "balance": "300",
+                    "esdt": {
+                        "str:STCOIN": "550"
+                    },
+                    "storage": {}
+                },
+                "sc:liqpool": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:STCOIN": {
+                            "balance": "1",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
+                        "str:DEBT": {
+                            "balance": "0",
+                            "lastNonce": "1",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ],
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "0",
+                                    "creator": "sc:liqpool"
+                                }
+                            ]
+                        }
+                    },
+                    "storage": {
+                        "str:poolAssetId": "str:EGLD",
+                        "str:borrowRate": "500000000",
+                        "str:healthFactorThreshold": "5",
+                        "str:debtTokenId": "str:DEBT",
+                        "str:stablecoinTokenId": "str:STCOIN",
+
+                        "str:totalCirculatingSupply": "600",
+                        "str:debtPosition|u64:1": {
+                            "0-health_factor": "u32:0",
+                            "1-is_liquidated": "u8:1",
+                            "2-collateral_timestamp": "u64:100,000",
+                            "3-collateral_amount": "biguint:300",
+                            "4-collateral_id": "nested:str:EGLD"
+                        }
+                    },
+                    "code": "file:../output/liquidity-pool.wasm"
+                },
+                "+": {}
+            }
+        }
+    ]
+}

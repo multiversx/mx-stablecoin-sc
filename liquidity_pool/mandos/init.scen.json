@@ -1,5 +1,6 @@
 {
     "name": "liquidity-pool",
+    "gasSchedule": "dummy",
     "steps": [
         {
             "step": "setState",
@@ -87,7 +88,7 @@
                         },
                         "str:DEBT": {
                             "balance": "0",
-                            "lastNonce": "1",
+                            "lastNonce": "0",
                             "roles": [
                                 "ESDTRoleNFTCreate",
                                 "ESDTRoleNFTAddQuantity",

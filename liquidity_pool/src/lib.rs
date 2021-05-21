@@ -159,14 +159,14 @@ pub trait LiquidityPool {
         &self,
         position_id: u64,
         #[payment_token] token_id: TokenIdentifier,
-        #[payment] payment_amount: BigUint,
+        #[payment] amount: BigUint,
     ) -> SCResult<()> {
         sc_try!(self.require_debt_token_issued());
         sc_try!(self.require_stablecoin_issued());
 
         let caller = self.blockchain().get_caller();
 
-        require!(payment_amount > 0, "amount must be greater then 0");
+        require!(amount > 0, "amount must be greater then 0");
         require!(
             token_id == self.stablecoin_token_id().get(),
             "can only repay with stablecoin"
@@ -193,8 +193,8 @@ pub trait LiquidityPool {
             &collateral_value_in_dollars,
             debt_position.collateral_timestamp,
         );
-        let total_owed = &collateral_value_in_dollars + &debt_interest;
-        let total_debt_paid = &repay_position.debt_paid + &payment_amount;
+        let total_owed = collateral_value_in_dollars + debt_interest;
+        let total_debt_paid = &repay_position.debt_paid + &amount;
 
         if total_debt_paid < total_owed {
             self.repay_position(&caller, position_id)
@@ -236,11 +236,14 @@ pub trait LiquidityPool {
                 repay_position.nft_nonce,
                 &self.debt_token_id().get(),
             );
+
+            // burn received stablecoins
+            self.burn_stablecoin(&amount);
         }
 
         // decrease circulating supply
         self.total_circulating_supply()
-            .update(|circulating_supply| *circulating_supply -= &payment_amount);
+            .update(|circulating_supply| *circulating_supply -= &amount);
 
         Ok(())
     }
@@ -580,31 +583,21 @@ pub trait LiquidityPool {
         }
     }
 
-    //
-    /// stablecoin token id
     #[view(getStablecoinTokenId)]
     #[storage_mapper("stablecoinTokenId")]
     fn stablecoin_token_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
-    //
-    /// pool asset
     #[view(getPoolAssetId)]
     #[storage_mapper("poolAssetId")]
     fn pool_asset_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
-    //
-    /// debt token supported for collateral
     #[view(getDebtTokenId)]
     #[storage_mapper("debtTokenId")]
     fn debt_token_id(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
 
-    //
-    /// debt positions
     #[storage_mapper("debtPosition")]
     fn debt_position(&self, id: u64) -> SingleValueMapper<Self::Storage, DebtPosition<BigUint>>;
 
-    //
-    /// repay position
     #[storage_mapper("repayPosition")]
     fn repay_position(
         &self,
@@ -612,19 +605,14 @@ pub trait LiquidityPool {
         id: u64,
     ) -> SingleValueMapper<Self::Storage, RepayPosition<BigUint>>;
 
-    //
-    /// health factor threshold
     #[view(getHealthFactorThreshold)]
     #[storage_mapper("healthFactorThreshold")]
     fn health_factor_threshold(&self) -> SingleValueMapper<Self::Storage, u32>;
 
-    //
-    // total circulating supply of stablecoins
     #[view(getTotalCirculatingSupply)]
     #[storage_mapper("totalCirculatingSupply")]
     fn total_circulating_supply(&self) -> SingleValueMapper<Self::Storage, BigUint>;
-
-    //
+    
     // Borrow rate of (0.5 * BASE_PRECISION) means only 50% of the amount calculated is sent
     #[view(getBorrowRate)]
     #[storage_mapper("borrowRate")]

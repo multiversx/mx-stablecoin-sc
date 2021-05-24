@@ -1,0 +1,111 @@
+{
+    "name": "liquidity-pool",
+    "gasSchedule": "dummy",
+    "steps": [
+        {
+            "step": "setState",
+            "accounts": {
+                "address:owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                }
+            },
+            "newAddresses": [
+                {
+                    "creatorAddress": "address:owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:liqpool"
+                }
+            ]
+        },
+        {
+            "step": "scDeploy",
+            "txId": "deploy",
+            "comment": "500000000 is 0.5 * BASE_PRECISION, i.e. 50% borrow rate",
+            "tx": {
+                "from": "address:owner",
+                "value": "0",
+                "contractCode": "file:../output/liquidity-pool.wasm",
+                "arguments": [
+                    "str:EGLD",
+                    "500000000",
+                    "5"
+                ],
+                "gasLimit": "1,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "logs": [],
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:owner": {
+                    "nonce": "1",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "sc:liqpool": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {
+                        "str:poolAssetId": "str:EGLD",
+                        "str:borrowRate": "500000000",
+                        "str:healthFactorThreshold": "5"
+                    },
+                    "code": "file:../output/liquidity-pool.wasm"
+                }
+            }
+        },
+        {
+            "step": "setState",
+            "accounts": {
+                "address:owner": {
+                    "nonce": "1",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:user": {
+                    "nonce": "0",
+                    "balance": "1,000",
+                    "storage": {}
+                },
+                "sc:liqpool": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:STCOIN": {
+                            "balance": "1",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
+                        "str:DEBT": {
+                            "balance": "0",
+                            "lastNonce": "0",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ]
+                        }
+                    },
+                    "storage": {
+                        "str:poolAssetId": "str:EGLD",
+                        "str:borrowRate": "500000000",
+                        "str:healthFactorThreshold": "5",
+                        "str:debtTokenId": "str:DEBT",
+                        "str:stablecoinTokenId": "str:STCOIN"
+                    },
+                    "code": "file:../output/liquidity-pool.wasm"
+                }
+            }
+        }
+    ]
+}

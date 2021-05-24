@@ -1,0 +1,99 @@
+{
+    "name": "borrow ok",
+    "gasSchedule": "dummy",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "init.scen.json"
+        },
+        {
+            "step": "setState",
+            "currentBlockInfo": {
+                "blockTimestamp": "100,000"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "borrow",
+            "comment": "The _out_ value is from built-in function call to get_current_esdt_nft_nonce",
+            "tx": {
+                "from": "address:user",
+                "to": "sc:liqpool",
+                "value": "400",
+                "function": "borrow",
+                "arguments": [],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [ "1" ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:user": {
+                    "nonce": "1",
+                    "balance": "600",
+                    "esdt": {
+                        "str:STCOIN": "200",
+                        "str:DEBT": {
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "400",
+                                    "creator": "sc:liqpool"
+                                }
+                            ]
+                        }
+                    },
+                    "storage": {}
+                },
+                "sc:liqpool": {
+                    "nonce": "0",
+                    "balance": "400",
+                    "esdt": {
+                        "str:STCOIN": {
+                            "balance": "1",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
+                        "str:DEBT": {
+                            "balance": "0",
+                            "lastNonce": "1",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ]
+                        }
+                    },
+                    "storage": {
+                        "str:poolAssetId": "str:EGLD",
+                        "str:borrowRate": "500000000",
+                        "str:healthFactorThreshold": "5",
+                        "str:debtTokenId": "str:DEBT",
+                        "str:stablecoinTokenId": "str:STCOIN",
+
+                        "str:totalCirculatingSupply": "200",
+                        "str:debtPosition|u64:1": {
+                            "0-health_factor": "u32:0",
+                            "1-is_liquidated": "u8:0",
+                            "2-collateral_timestamp": "u64:100,000",
+                            "3-collateral_amount": "biguint:400",
+                            "4-collateral_id": "nested:str:EGLD"
+                        }
+                    },
+                    "code": "file:../output/liquidity-pool.wasm"
+                },
+                "+": {}
+            }
+        }
+    ]
+}

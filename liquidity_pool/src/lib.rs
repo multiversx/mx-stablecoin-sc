@@ -158,15 +158,11 @@ pub trait LiquidityPool:
 
         require!(!debt_position.is_liquidated, "position is liquidated");
 
-        let collateral_value_in_dollars = self.compute_collateral_value_in_dollars(
+        let total_owed = self.calculate_total_owed(
             &debt_position.collateral_id,
             &repay_position.collateral_amount_to_withdraw,
-        );
-        let debt_interest = self.get_debt_interest(
-            &collateral_value_in_dollars,
             debt_position.collateral_timestamp,
         );
-        let total_owed = collateral_value_in_dollars + debt_interest;
         let total_debt_paid = &repay_position.debt_paid + &amount;
 
         if total_debt_paid < total_owed {
@@ -240,15 +236,11 @@ pub trait LiquidityPool:
         );
 
         let caller = self.blockchain().get_caller();
-        let collateral_value_in_dollars = self.compute_collateral_value_in_dollars(
+        let total_owed = self.calculate_total_owed(
             &debt_position.collateral_id,
             &debt_position.collateral_amount,
-        );
-        let debt_interest = self.get_debt_interest(
-            &collateral_value_in_dollars,
             debt_position.collateral_timestamp,
         );
-        let total_owed = &collateral_value_in_dollars + &debt_interest;
 
         require!(
             amount >= total_owed,
@@ -360,6 +352,20 @@ pub trait LiquidityPool:
         } else {
             (&debt_percentage * amount) / base_precision
         }
+    }
+
+    fn calculate_total_owed(
+        &self,
+        collateral_id: &TokenIdentifier,
+        collateral_amount: &Self::BigUint,
+        collateral_timestamp: u64,
+    ) -> Self::BigUint {
+        let collateral_value_in_dollars =
+            self.compute_collateral_value_in_dollars(collateral_id, collateral_amount);
+        let debt_interest =
+            self.get_debt_interest(&collateral_value_in_dollars, collateral_timestamp);
+
+        collateral_value_in_dollars + debt_interest
     }
 
     fn clear_after_full_repay(

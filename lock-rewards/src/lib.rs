@@ -54,7 +54,8 @@ pub trait LockRewards {
         };
 
         if user_deposit.amount > 0 {
-            user_deposit.cummulated_rewards += self.calculate_cumulated_rewards(&user_deposit, current_block_nonce);
+            user_deposit.cummulated_rewards +=
+                self.calculate_cumulated_rewards(&user_deposit, current_block_nonce);
             user_deposit.last_claim_block_nonce = current_block_nonce;
         }
 
@@ -84,13 +85,12 @@ pub trait LockRewards {
     fn calculate_cumulated_rewards(
         &self,
         user_deposit: &UserDeposit<Self::BigUint>,
-        current_block_nonce: u64
+        current_block_nonce: u64,
     ) -> Self::BigUint {
         let percentage_reward_per_block = self.percentage_reward_per_block().get();
         let amount_per_block =
             (&user_deposit.amount * &percentage_reward_per_block) / BASE_PRECISION.into();
-        let blocks_waited =
-            current_block_nonce - user_deposit.last_claim_block_nonce;
+        let blocks_waited = current_block_nonce - user_deposit.last_claim_block_nonce;
 
         amount_per_block * blocks_waited.into()
     }

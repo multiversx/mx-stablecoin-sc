@@ -86,15 +86,34 @@ pub trait LockRewards {
             "Cannot withdraw more than deposited amount"
         );
 
-        let token_id = self.stablecoin_token_id().get();
-        self.send().direct(&caller, &token_id, &amount, &[]);
+        self.send_stablecoins(&caller, &amount);
 
         let current_block_nonce = self.blockchain().get_block_nonce();
         let percentage_reward_per_block = self.percentage_reward_per_block().get();
         user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
         user_deposit.amount -= amount;
 
-        self.update_or_remove_if_cleared(caller, user_deposit);
+        self.update_user_deposit_or_remove_if_cleared(caller, user_deposit);
+
+        Ok(())
+    }
+
+    #[endpoint(claimRewards)]
+    fn claim_rewards(&self) -> SCResult<()> {
+        self.require_local_mint_role_set()?;
+
+        let caller = self.blockchain().get_caller();
+        let current_block_nonce = self.blockchain().get_block_nonce();
+        let percentage_reward_per_block = self.percentage_reward_per_block().get();
+        let mut user_deposit = self.get_user_deposit_or_default(&caller);
+
+        user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
+
+        self.try_mint_stablecoins(&user_deposit.cummulated_rewards)?;
+        self.send_stablecoins(&caller, &user_deposit.cummulated_rewards);
+
+        user_deposit.cummulated_rewards = Self::BigUint::zero();
+        self.update_user_deposit_or_remove_if_cleared(caller, user_deposit);
 
         Ok(())
     }
@@ -129,6 +148,26 @@ pub trait LockRewards {
         Ok(())
     }
 
+    fn try_mint_stablecoins(&self, amount: &Self::BigUint) -> SCResult<()> {
+        self.require_local_mint_role_set()?;
+
+        let token_id = self.stablecoin_token_id().get();
+        self.send().esdt_local_mint(
+            self.blockchain().get_gas_left(),
+            token_id.as_esdt_identifier(),
+            amount,
+        );
+
+        Ok(())
+    }
+
+    fn send_stablecoins(&self, to: &Address, amount: &Self::BigUint) {
+        if amount > &0 {
+            let token_id = self.stablecoin_token_id().get();
+            self.send().direct(to, &token_id, amount, &[]);
+        }
+    }
+
     fn get_user_deposit_or_default(&self, address: &Address) -> UserDeposit<Self::BigUint> {
         match self.user_deposits().get(address) {
             Some(dep) => dep,
@@ -136,7 +175,7 @@ pub trait LockRewards {
         }
     }
 
-    fn update_or_remove_if_cleared(
+    fn update_user_deposit_or_remove_if_cleared(
         &self,
         address: Address,
         user_deposit: UserDeposit<Self::BigUint>,

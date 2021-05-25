@@ -5,9 +5,6 @@ elrond_wasm::imports!();
 pub mod user_deposit;
 use user_deposit::*;
 
-// for consistency, we're using the same precision as the liquidity pool
-pub const BASE_PRECISION: u64 = 1_000_000_000;
-
 #[elrond_wasm_derive::contract]
 pub trait LockRewards {
     #[init]
@@ -38,14 +35,7 @@ pub trait LockRewards {
         let current_block_nonce = self.blockchain().get_block_nonce();
         for address in self.user_deposits().keys() {
             let mut user_deposit = self.get_user_deposit_or_default(&address);
-            let additional_cummulated_rewards = self.calculate_cumulated_rewards(
-                &user_deposit,
-                current_block_nonce,
-                &old_percentage,
-            );
-
-            user_deposit.cummulated_rewards += additional_cummulated_rewards;
-            user_deposit.last_claim_block_nonce = current_block_nonce;
+            user_deposit.accummulate_rewards(current_block_nonce, &old_percentage);
 
             self.user_deposits().insert(address, user_deposit);
         }
@@ -70,26 +60,59 @@ pub trait LockRewards {
 
         let caller = self.blockchain().get_caller();
         let current_block_nonce = self.blockchain().get_block_nonce();
+        let percentage_reward_per_block = self.percentage_reward_per_block().get();
         let mut user_deposit = self.get_user_deposit_or_default(&caller);
 
-        if user_deposit.amount > 0 {
-            let additional_cummulated_rewards = self.calculate_cumulated_rewards(
-                &user_deposit,
-                current_block_nonce,
-                &self.percentage_reward_per_block().get(),
-            );
-
-            user_deposit.cummulated_rewards += additional_cummulated_rewards;
-        }
-
-        user_deposit.last_claim_block_nonce = current_block_nonce;
+        user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
         user_deposit.amount += amount;
         self.user_deposits().insert(caller, user_deposit);
 
         Ok(())
     }
 
+    /// optional amount to withdraw. Defaults to max possible.
+    #[endpoint]
+    fn withdraw(&self, #[var_args] opt_amount: OptionalArg<Self::BigUint>) -> SCResult<()> {
+        let caller = self.blockchain().get_caller();
+        let mut user_deposit = self.get_user_deposit_or_default(&caller);
+        let amount = match opt_amount {
+            OptionalArg::Some(amt) => amt,
+            OptionalArg::None => user_deposit.amount.clone(),
+        };
+
+        require!(amount > 0, "Must withdraw more than 0");
+        require!(
+            amount <= user_deposit.amount,
+            "Cannot withdraw more than deposited amount"
+        );
+
+        let token_id = self.stablecoin_token_id().get();
+        self.send().direct(&caller, &token_id, &amount, &[]);
+
+        let current_block_nonce = self.blockchain().get_block_nonce();
+        let percentage_reward_per_block = self.percentage_reward_per_block().get();
+        user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
+        user_deposit.amount -= amount;
+
+        self.update_or_remove_if_cleared(caller, user_deposit);
+
+        Ok(())
+    }
+
     // private
+
+    fn require_local_mint_role_set(&self) -> SCResult<()> {
+        let token_id = self.stablecoin_token_id().get();
+        let roles = self
+            .blockchain()
+            .get_esdt_local_roles(token_id.as_esdt_identifier());
+        require!(
+            roles.contains(&EsdtLocalRole::Mint),
+            "Local Mint role not set"
+        );
+
+        Ok(())
+    }
 
     fn try_set_percentage_rewards_per_block(
         &self,
@@ -106,23 +129,22 @@ pub trait LockRewards {
         Ok(())
     }
 
-    fn calculate_cumulated_rewards(
-        &self,
-        user_deposit: &UserDeposit<Self::BigUint>,
-        current_block_nonce: u64,
-        percentage_reward_per_block: &Self::BigUint,
-    ) -> Self::BigUint {
-        let amount_per_block =
-            (&user_deposit.amount * percentage_reward_per_block) / BASE_PRECISION.into();
-        let blocks_waited = current_block_nonce - user_deposit.last_claim_block_nonce;
-
-        amount_per_block * blocks_waited.into()
-    }
-
     fn get_user_deposit_or_default(&self, address: &Address) -> UserDeposit<Self::BigUint> {
         match self.user_deposits().get(address) {
             Some(dep) => dep,
             None => UserDeposit::default(),
+        }
+    }
+
+    fn update_or_remove_if_cleared(
+        &self,
+        address: Address,
+        user_deposit: UserDeposit<Self::BigUint>,
+    ) {
+        if user_deposit.amount > 0 || user_deposit.cummulated_rewards > 0 {
+            self.user_deposits().insert(address, user_deposit);
+        } else {
+            self.user_deposits().remove(&address);
         }
     }
 

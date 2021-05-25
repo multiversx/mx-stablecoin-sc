@@ -1,5 +1,5 @@
 [package]
-name = "liquidity-pool-wasm"
+name = "lock-rewards-wasm"
 version = "0.0.1"
 authors = ["Dorin Iancu <dorin.iancu@elrond.com>"]
 edition = "2018"
@@ -20,7 +20,7 @@ lto = true
 debug = false
 panic = "abort"
 
-[dependencies.liquidity-pool]
+[dependencies.lock-rewards]
 features = [ "wasm-output-mode",]
 default-features = false
 path = ".."

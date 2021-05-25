@@ -26,6 +26,33 @@ pub trait LockRewards {
 
     // endpoints - owner-only
 
+    fn set_percentage_reward_per_block(
+        &self,
+        percentage_reward_per_block: Self::BigUint,
+    ) -> SCResult<()> {
+        only_owner!(self, "only owner may call this function");
+
+        let old_percentage = self.percentage_reward_per_block().get();
+        self.try_set_percentage_rewards_per_block(&percentage_reward_per_block)?;
+
+        let current_block_nonce = self.blockchain().get_block_nonce();
+        for address in self.user_deposits().keys() {
+            let mut user_deposit = self.get_user_deposit_or_default(&address);
+            let additional_cummulated_rewards = self.calculate_cumulated_rewards(
+                &user_deposit,
+                current_block_nonce,
+                &old_percentage,
+            );
+
+            user_deposit.cummulated_rewards += additional_cummulated_rewards;
+            user_deposit.last_claim_block_nonce = current_block_nonce;
+
+            self.user_deposits().insert(address, user_deposit);
+        }
+
+        Ok(())
+    }
+
     // endpoints
 
     #[payable("*")]
@@ -43,15 +70,7 @@ pub trait LockRewards {
 
         let caller = self.blockchain().get_caller();
         let current_block_nonce = self.blockchain().get_block_nonce();
-        let mut user_deposit = match self.user_deposits().get(&caller) {
-            Some(dep) => dep,
-            None => {
-                let mut default_deposit = UserDeposit::default();
-                default_deposit.last_claim_block_nonce = current_block_nonce;
-
-                default_deposit
-            }
-        };
+        let mut user_deposit = self.get_user_deposit_or_default(&caller);
 
         if user_deposit.amount > 0 {
             let additional_cummulated_rewards = self.calculate_cumulated_rewards(
@@ -61,9 +80,9 @@ pub trait LockRewards {
             );
 
             user_deposit.cummulated_rewards += additional_cummulated_rewards;
-            user_deposit.last_claim_block_nonce = current_block_nonce;
         }
 
+        user_deposit.last_claim_block_nonce = current_block_nonce;
         user_deposit.amount += amount;
         self.user_deposits().insert(caller, user_deposit);
 
@@ -98,6 +117,13 @@ pub trait LockRewards {
         let blocks_waited = current_block_nonce - user_deposit.last_claim_block_nonce;
 
         amount_per_block * blocks_waited.into()
+    }
+
+    fn get_user_deposit_or_default(&self, address: &Address) -> UserDeposit<Self::BigUint> {
+        match self.user_deposits().get(address) {
+            Some(dep) => dep,
+            None => UserDeposit::default(),
+        }
     }
 
     // storage

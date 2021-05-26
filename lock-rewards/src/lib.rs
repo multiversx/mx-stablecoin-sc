@@ -23,6 +23,7 @@ pub trait LockRewards {
 
     // endpoints - owner-only
 
+    #[endpoint(setPercentageRewardPerBlock)]
     fn set_percentage_reward_per_block(
         &self,
         percentage_reward_per_block: Self::BigUint,
@@ -34,10 +35,11 @@ pub trait LockRewards {
 
         let current_block_nonce = self.blockchain().get_block_nonce();
         for address in self.user_deposits().keys() {
-            let mut user_deposit = self.get_user_deposit_or_default(&address);
-            user_deposit.accummulate_rewards(current_block_nonce, &old_percentage);
-
-            self.user_deposits().insert(address, user_deposit);
+            self.user_deposits()
+                .entry(address)
+                .and_modify(|user_deposit| {
+                    user_deposit.accummulate_rewards(current_block_nonce, &old_percentage);
+                });
         }
 
         Ok(())
@@ -61,11 +63,14 @@ pub trait LockRewards {
         let caller = self.blockchain().get_caller();
         let current_block_nonce = self.blockchain().get_block_nonce();
         let percentage_reward_per_block = self.percentage_reward_per_block().get();
-        let mut user_deposit = self.get_user_deposit_or_default(&caller);
 
-        user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
-        user_deposit.amount += amount;
-        self.user_deposits().insert(caller, user_deposit);
+        self.user_deposits()
+            .entry(caller)
+            .or_default()
+            .update(|user_deposit| {
+                user_deposit.accummulate_rewards(current_block_nonce, &percentage_reward_per_block);
+                user_deposit.amount += amount;
+            });
 
         Ok(())
     }
@@ -75,10 +80,9 @@ pub trait LockRewards {
     fn withdraw(&self, #[var_args] opt_amount: OptionalArg<Self::BigUint>) -> SCResult<()> {
         let caller = self.blockchain().get_caller();
         let mut user_deposit = self.get_user_deposit_or_default(&caller);
-        let amount = match opt_amount {
-            OptionalArg::Some(amt) => amt,
-            OptionalArg::None => user_deposit.amount.clone(),
-        };
+        let amount = opt_amount
+            .into_option()
+            .unwrap_or_else(|| user_deposit.amount.clone());
 
         require!(amount > 0, "Must withdraw more than 0");
         require!(
@@ -169,10 +173,7 @@ pub trait LockRewards {
     }
 
     fn get_user_deposit_or_default(&self, address: &Address) -> UserDeposit<Self::BigUint> {
-        match self.user_deposits().get(address) {
-            Some(dep) => dep,
-            None => UserDeposit::default(),
-        }
+        self.user_deposits().get(address).unwrap_or_default()
     }
 
     fn update_user_deposit_or_remove_if_cleared(

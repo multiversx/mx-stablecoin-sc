@@ -9,8 +9,8 @@ elrond_wasm::derive_imports!();
 mod debt_token;
 mod stablecoin_token;
 
-pub const BASE_PRECISION: u32 = 1_000_000_000;
-pub const SECONDS_IN_YEAR: u32 = 31_556_926;
+pub const BASE_PRECISION: u64 = 1_000_000_000;
+pub const SECONDS_IN_YEAR: u64 = 31_556_926;
 
 #[elrond_wasm_derive::contract]
 pub trait LiquidityPool:
@@ -24,7 +24,7 @@ pub trait LiquidityPool:
         health_factor_threshold: u32,
     ) -> SCResult<()> {
         require!(
-            borrow_rate < Self::BigUint::from(BASE_PRECISION),
+            borrow_rate < BASE_PRECISION,
             "Invalid borrow rate"
         );
         require!(
@@ -305,7 +305,7 @@ pub trait LiquidityPool:
 
     /// Ratio of 1:1 for the purpose of mocking
     fn get_collateral_to_dollar_ratio(&self, _collateral_id: &TokenIdentifier) -> Self::BigUint {
-        Self::BigUint::from(BASE_PRECISION)
+        BASE_PRECISION.into()
     }
 
     fn compute_collateral_value_in_dollars(
@@ -314,9 +314,8 @@ pub trait LiquidityPool:
         collateral_amount: &Self::BigUint,
     ) -> Self::BigUint {
         let collateral_to_dollar_ratio = self.get_collateral_to_dollar_ratio(collateral_id);
-        let base_precision = Self::BigUint::from(BASE_PRECISION);
 
-        (collateral_amount * &collateral_to_dollar_ratio) / base_precision
+        (collateral_amount * &collateral_to_dollar_ratio) / BASE_PRECISION.into()
     }
 
     fn compute_stablecoin_amount_to_send(
@@ -327,9 +326,8 @@ pub trait LiquidityPool:
         let borrow_rate = self.borrow_rate().get();
         let collateral_value_in_dollars =
             self.compute_collateral_value_in_dollars(collateral_id, collateral_amount);
-        let base_precision = Self::BigUint::from(BASE_PRECISION);
 
-        (collateral_value_in_dollars * borrow_rate) / base_precision
+        (collateral_value_in_dollars * borrow_rate) / BASE_PRECISION.into()
     }
 
     fn compute_debt(

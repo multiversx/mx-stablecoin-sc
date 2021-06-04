@@ -126,9 +126,7 @@ pub trait LockRewards {
 
     fn require_local_mint_role_set(&self) -> SCResult<()> {
         let token_id = self.stablecoin_token_id().get();
-        let roles = self
-            .blockchain()
-            .get_esdt_local_roles(token_id.as_esdt_identifier());
+        let roles = self.blockchain().get_esdt_local_roles(&token_id);
         require!(
             roles.contains(&EsdtLocalRole::Mint),
             "Local Mint role not set"
@@ -156,11 +154,7 @@ pub trait LockRewards {
         self.require_local_mint_role_set()?;
 
         let token_id = self.stablecoin_token_id().get();
-        self.send().esdt_local_mint(
-            self.blockchain().get_gas_left(),
-            token_id.as_esdt_identifier(),
-            amount,
-        );
+        self.send().esdt_local_mint(&token_id, amount);
 
         Ok(())
     }

@@ -291,7 +291,7 @@ pub trait LiquidityPool:
         } else {
             self.blockchain().get_esdt_balance(
                 &self.blockchain().get_sc_address(),
-                pool_asset_id.as_esdt_identifier(),
+                &pool_asset_id,
                 0,
             )
         }

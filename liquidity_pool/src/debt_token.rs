@@ -37,8 +37,7 @@ pub trait DebtTokenModule {
 
     fn mint_debt(&self, amount: &Self::BigUint) {
         self.send().esdt_nft_create::<()>(
-            self.blockchain().get_gas_left(),
-            self.debt_token_id().get().as_esdt_identifier(),
+            &self.debt_token_id().get(),
             &amount,
             &BoxedBytes::empty(),
             &Self::BigUint::zero(),
@@ -49,27 +48,18 @@ pub trait DebtTokenModule {
     }
 
     fn burn_debt(&self, nonce: u64, amount: &Self::BigUint) {
-        self.send().esdt_nft_burn(
-            self.blockchain().get_gas_left(),
-            self.debt_token_id().get().as_esdt_identifier(),
-            nonce,
-            &amount,
-        );
+        self.send()
+            .esdt_nft_burn(&self.debt_token_id().get(), nonce, &amount);
     }
 
     fn send_debt(&self, to: &Address, nonce: u64, amount: &Self::BigUint) {
-        let _ = self.send().direct_esdt_nft_via_transfer_exec(
-            to,
-            self.debt_token_id().get().as_esdt_identifier(),
-            nonce,
-            amount,
-            &[],
-        );
+        self.send()
+            .direct_nft(to, &self.debt_token_id().get(), nonce, amount, &[]);
     }
 
     /// returns the nonce of the newly created SFTs
     fn create_and_send_debt(&self, to: &Address, amount: &Self::BigUint) -> u64 {
-        self.mint_debt(amount);        
+        self.mint_debt(amount);
         let new_nonce = self.get_debt_current_nonce();
         self.send_debt(to, new_nonce, amount);
 
@@ -79,7 +69,7 @@ pub trait DebtTokenModule {
     fn get_debt_current_nonce(&self) -> u64 {
         self.blockchain().get_current_esdt_nft_nonce(
             &self.blockchain().get_sc_address(),
-            self.debt_token_id().get().as_esdt_identifier(),
+            &self.debt_token_id().get(),
         )
     }
 
@@ -101,7 +91,7 @@ pub trait DebtTokenModule {
         ];
 
         ESDTSystemSmartContractProxy::new_proxy_obj(self.send())
-            .set_special_roles(&own_sc_address, token_id.as_esdt_identifier(), &roles)
+            .set_special_roles(&own_sc_address, &token_id, &roles)
             .async_call()
     }
 

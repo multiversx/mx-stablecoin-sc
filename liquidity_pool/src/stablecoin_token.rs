@@ -44,22 +44,16 @@ pub trait StablecoinTokenModule {
     }
 
     fn mint_stablecoin(&self, amount: &Self::BigUint) {
-        self.send().esdt_local_mint(
-            self.blockchain().get_gas_left(),
-            self.stablecoin_token_id().get().as_esdt_identifier(),
-            amount,
-        );
+        self.send()
+            .esdt_local_mint(&self.stablecoin_token_id().get(), amount);
 
         self.total_circulating_supply()
             .update(|total| *total += amount);
     }
 
     fn burn_stablecoin(&self, amount: &Self::BigUint) {
-        self.send().esdt_local_burn(
-            self.blockchain().get_gas_left(),
-            self.stablecoin_token_id().get().as_esdt_identifier(),
-            amount,
-        );
+        self.send()
+            .esdt_local_burn(&self.stablecoin_token_id().get(), amount);
 
         self.total_circulating_supply()
             .update(|total| *total -= amount);
@@ -89,7 +83,7 @@ pub trait StablecoinTokenModule {
         let roles = [EsdtLocalRole::Mint, EsdtLocalRole::Burn];
 
         ESDTSystemSmartContractProxy::new_proxy_obj(self.send())
-            .set_special_roles(&own_sc_address, token_id.as_esdt_identifier(), &roles)
+            .set_special_roles(&own_sc_address, &token_id, &roles)
             .async_call()
     }
 

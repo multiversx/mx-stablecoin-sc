@@ -104,8 +104,6 @@ pub trait LockRewards {
 
     #[endpoint(claimRewards)]
     fn claim_rewards(&self) -> SCResult<()> {
-        self.require_local_mint_role_set()?;
-
         let caller = self.blockchain().get_caller();
         let current_block_nonce = self.blockchain().get_block_nonce();
         let percentage_reward_per_block = self.percentage_reward_per_block().get();

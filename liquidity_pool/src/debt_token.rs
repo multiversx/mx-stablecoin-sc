@@ -38,7 +38,7 @@ pub trait DebtTokenModule {
     fn mint_debt(&self, amount: &Self::BigUint) {
         self.send().esdt_nft_create::<()>(
             &self.debt_token_id().get(),
-            &amount,
+            amount,
             &BoxedBytes::empty(),
             &Self::BigUint::zero(),
             &BoxedBytes::empty(),
@@ -49,7 +49,7 @@ pub trait DebtTokenModule {
 
     fn burn_debt(&self, nonce: u64, amount: &Self::BigUint) {
         self.send()
-            .esdt_nft_burn(&self.debt_token_id().get(), nonce, &amount);
+            .esdt_nft_burn(&self.debt_token_id().get(), nonce, amount);
     }
 
     fn send_debt(&self, to: &Address, nonce: u64, amount: &Self::BigUint) {

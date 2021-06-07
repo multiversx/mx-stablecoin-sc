@@ -23,10 +23,7 @@ pub trait LiquidityPool:
         borrow_rate: Self::BigUint,
         health_factor_threshold: u32,
     ) -> SCResult<()> {
-        require!(
-            borrow_rate < BASE_PRECISION,
-            "Invalid borrow rate"
-        );
+        require!(borrow_rate < BASE_PRECISION, "Invalid borrow rate");
         require!(
             asset.is_egld() || asset.is_valid_esdt_identifier(),
             "Invalid asset"
@@ -66,7 +63,7 @@ pub trait LiquidityPool:
         let stablecoin_amount =
             self.compute_stablecoin_amount_to_send(&collateral_id, &collateral_amount);
 
-        self.mint_and_send_stablecoin(&caller, &&stablecoin_amount);
+        self.mint_and_send_stablecoin(&caller, &stablecoin_amount);
 
         let current_health = self.compute_health_factor(&collateral_id);
         let debt_position = DebtPosition {
@@ -339,17 +336,9 @@ pub trait LiquidityPool:
         let base_precision = Self::BigUint::from(BASE_PRECISION);
         let secs_year = Self::BigUint::from(SECONDS_IN_YEAR);
         let time_unit_percentage = (time_diff * &base_precision) / secs_year;
+        let debt_percentage = &(&time_unit_percentage * borrow_rate) / &base_precision;
 
-        let debt_percentage = (&time_unit_percentage * borrow_rate) / base_precision.clone();
-
-        if debt_percentage <= base_precision {
-            let amount_diff =
-                ((&base_precision - &debt_percentage) * amount.clone()) / base_precision;
-
-            amount - &amount_diff
-        } else {
-            (&debt_percentage * amount) / base_precision
-        }
+        (&debt_percentage * amount) / base_precision
     }
 
     fn calculate_total_owed(
@@ -373,7 +362,7 @@ pub trait LiquidityPool:
         collateral_amount_full: &Self::BigUint,
         collateral_amount_withdrawed: &Self::BigUint,
     ) {
-        self.repay_position(&caller, position_id).clear();
+        self.repay_position(caller, position_id).clear();
 
         if collateral_amount_full == collateral_amount_withdrawed {
             self.debt_position(position_id).clear();

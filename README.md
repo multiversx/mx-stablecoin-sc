@@ -21,7 +21,7 @@ We've talked a bit about collateralized stablecoins, but unfortunately, they've 
 
 But what if the asset's value decreases? Even with the imposed debt fee, the stablecoin ecosystem might not be able to cover up its losses. This would lead to a gradual increase in total supply of stablecoins, which would make its value decrease below $1. This is especially a problem for cryptocoins as collateral.  
 
-To try and counteract this problem, the concept of overcollateralized stablecoin was created: instead of giving the user the full value of their asset in dollars at that point in time, instead we only give them part of its value, for example, 75% of the value. This discourages trading back and forth for a profit, but instead promotes the idea of using the stablecoin for its intended purpose of being a store of value and medium of exchange.  
+To try and counteract this problem, the concept of overcollateralized stablecoin was created: instead of giving the user the full value of their asset in dollars at that point in time, we only give them part of its value, for example, 75% of the value. This discourages trading back and forth for a profit, but instead promotes the idea of using the stablecoin for its intended purpose of being a store of value and medium of exchange.  
 
 ## Buying stablecoins
 

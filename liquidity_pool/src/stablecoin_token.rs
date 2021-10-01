@@ -3,7 +3,7 @@ elrond_wasm::imports!();
 const STABLE_COIN_NAME: &[u8] = b"StableCoin";
 const STABLE_COIN_TICKER: &[u8] = b"STCOIN";
 
-#[elrond_wasm_derive::module]
+#[elrond_wasm::module]
 pub trait StablecoinTokenModule {
     #[payable("EGLD")]
     #[endpoint(issueStablecoinToken)]
@@ -45,7 +45,7 @@ pub trait StablecoinTokenModule {
 
     fn mint_stablecoin(&self, amount: &Self::BigUint) {
         self.send()
-            .esdt_local_mint(&self.stablecoin_token_id().get(), amount);
+            .esdt_local_mint(&self.stablecoin_token_id().get(), 0, amount);
 
         self.total_circulating_supply()
             .update(|total| *total += amount);
@@ -53,7 +53,7 @@ pub trait StablecoinTokenModule {
 
     fn burn_stablecoin(&self, amount: &Self::BigUint) {
         self.send()
-            .esdt_local_burn(&self.stablecoin_token_id().get(), amount);
+            .esdt_local_burn(&self.stablecoin_token_id().get(), 0, amount);
 
         self.total_circulating_supply()
             .update(|total| *total -= amount);
@@ -61,7 +61,7 @@ pub trait StablecoinTokenModule {
 
     fn send_stablecoin(&self, to: &Address, amount: &Self::BigUint) {
         self.send()
-            .direct(to, &self.stablecoin_token_id().get(), amount, &[]);
+            .direct(to, &self.stablecoin_token_id().get(), 0, amount, &[]);
     }
 
     fn mint_and_send_stablecoin(&self, to: &Address, amount: &Self::BigUint) {

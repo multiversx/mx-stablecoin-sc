@@ -3,7 +3,7 @@ elrond_wasm::imports!();
 const DEBT_TOKEN_NAME: &[u8] = b"DebtBearing";
 const DEBT_TOKEN_TICKER: &[u8] = b"DEBT";
 
-#[elrond_wasm_derive::module]
+#[elrond_wasm::module]
 pub trait DebtTokenModule {
     #[payable("EGLD")]
     #[endpoint(issueDebtToken)]
@@ -49,12 +49,12 @@ pub trait DebtTokenModule {
 
     fn burn_debt(&self, nonce: u64, amount: &Self::BigUint) {
         self.send()
-            .esdt_nft_burn(&self.debt_token_id().get(), nonce, amount);
+            .esdt_local_burn(&self.debt_token_id().get(), nonce, amount);
     }
 
     fn send_debt(&self, to: &Address, nonce: u64, amount: &Self::BigUint) {
         self.send()
-            .direct_nft(to, &self.debt_token_id().get(), nonce, amount, &[]);
+            .direct(to, &self.debt_token_id().get(), nonce, amount, &[]);
     }
 
     /// returns the nonce of the newly created SFTs

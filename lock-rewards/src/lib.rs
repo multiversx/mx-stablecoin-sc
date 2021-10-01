@@ -5,7 +5,7 @@ elrond_wasm::imports!();
 pub mod user_deposit;
 use user_deposit::*;
 
-#[elrond_wasm_derive::contract]
+#[elrond_wasm::contract]
 pub trait LockRewards {
     #[init]
     fn init(
@@ -152,7 +152,7 @@ pub trait LockRewards {
         self.require_local_mint_role_set()?;
 
         let token_id = self.stablecoin_token_id().get();
-        self.send().esdt_local_mint(&token_id, amount);
+        self.send().esdt_local_mint(&token_id, 0, amount);
 
         Ok(())
     }
@@ -160,7 +160,7 @@ pub trait LockRewards {
     fn send_stablecoins(&self, to: &Address, amount: &Self::BigUint) {
         if amount > &0 {
             let token_id = self.stablecoin_token_id().get();
-            self.send().direct(to, &token_id, amount, &[]);
+            self.send().direct(to, &token_id, 0, amount, &[]);
         }
     }
 

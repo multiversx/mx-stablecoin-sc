@@ -1,6 +1,6 @@
 [package]
 name = "lock-rewards"
-version = "0.0.1"
+version = "0.0.0"
 authors = ["Dorin Iancu <dorin.iancu@elrond.com>"]
 edition = "2018"
 publish = false
@@ -12,14 +12,12 @@ path = "src/lib.rs"
 wasm-output-mode = [ "elrond-wasm-node",]
 
 [dependencies.elrond-wasm]
-version = "0.17.2"
-
-[dependencies.elrond-wasm-derive]
-version = "0.17.2"
+version = "0.18.2"
+features = ["derive"]
 
 [dependencies.elrond-wasm-node]
-version = "0.17.2"
+version = "0.18.2"
 optional = true
 
 [dev-dependencies.elrond-wasm-debug]
-version = "0.17.2"
+version = "0.18.2"

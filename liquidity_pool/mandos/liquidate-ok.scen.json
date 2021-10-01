@@ -37,13 +37,7 @@
                                 "ESDTRoleNFTAddQuantity",
                                 "ESDTRoleNFTBurn"
                             ],
-                            "instances": [
-                                {
-                                    "nonce": "1",
-                                    "balance": "0",
-                                    "creator": "sc:liqpool"
-                                }
-                            ]
+                            "instances": []
                         }
                     },
                     "storage": {
@@ -126,13 +120,7 @@
                                 "ESDTRoleNFTAddQuantity",
                                 "ESDTRoleNFTBurn"
                             ],
-                            "instances": [
-                                {
-                                    "nonce": "1",
-                                    "balance": "0",
-                                    "creator": "sc:liqpool"
-                                }
-                            ]
+                            "instances": []
                         }
                     },
                     "storage": {

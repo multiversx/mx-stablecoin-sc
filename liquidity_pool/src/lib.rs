@@ -12,7 +12,7 @@ mod stablecoin_token;
 pub const BASE_PRECISION: u64 = 1_000_000_000;
 pub const SECONDS_IN_YEAR: u64 = 31_556_926;
 
-#[elrond_wasm_derive::contract]
+#[elrond_wasm::contract]
 pub trait LiquidityPool:
     stablecoin_token::StablecoinTokenModule + debt_token::DebtTokenModule
 {
@@ -185,6 +185,7 @@ pub trait LiquidityPool:
             self.send().direct(
                 &caller,
                 &debt_position.collateral_id,
+                0,
                 &repay_position.collateral_amount_to_withdraw,
                 &[],
             );
@@ -257,6 +258,7 @@ pub trait LiquidityPool:
         self.send().direct(
             &caller,
             &debt_position.collateral_id,
+            0,
             &debt_position.collateral_amount,
             &[],
         );
@@ -282,16 +284,7 @@ pub trait LiquidityPool:
     #[view(getTotalLockedPoolAsset)]
     fn get_total_locked_pool_asset(&self) -> Self::BigUint {
         let pool_asset_id = self.pool_asset_id().get();
-
-        if pool_asset_id.is_egld() {
-            self.blockchain().get_sc_balance()
-        } else {
-            self.blockchain().get_esdt_balance(
-                &self.blockchain().get_sc_address(),
-                &pool_asset_id,
-                0,
-            )
-        }
+        self.blockchain().get_sc_balance(&pool_asset_id, 0)
     }
 
     // UTILS

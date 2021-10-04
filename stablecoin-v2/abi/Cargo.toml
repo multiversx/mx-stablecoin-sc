@@ -1,0 +1,17 @@
+[package]
+name = "stablecoin-v2-abi"
+version = "0.0.0"
+authors = [ "you",]
+edition = "2018"
+publish = false
+
+[dev-dependencies]
+
+[dependencies.stablecoin-v2]
+path = ".."
+
+[dependencies.elrond-wasm]
+version = "0.18.2"
+
+[dependencies.elrond-wasm-debug]
+version = "0.18.2"

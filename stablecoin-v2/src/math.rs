@@ -13,7 +13,7 @@ pub trait MathModule {
         &(first * ONE) / second
     }
 
-    fn get_percentage_of(&self, number: &BigUint, percentage: &BigUint) -> BigUint {
+    fn calculate_percentage_of(&self, percentage: &BigUint, number: &BigUint) -> BigUint {
         number * percentage / PERCENTAGE_PRECISION
     }
 }

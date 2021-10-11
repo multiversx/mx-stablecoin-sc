@@ -4,26 +4,28 @@ elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
 mod fees;
+mod hedging_agents;
+mod hedging_token;
 mod math;
+mod pools;
 mod stablecoin_token;
-
-use price_aggregator_proxy::DOLLAR_TICKER;
-
-#[derive(TypeAbi, TopEncode, TopDecode)]
-pub struct Pool<M: ManagedTypeApi> {
-    pub collateral_amount: BigUint<M>,
-    pub stablecoin_amount: BigUint<M>,
-}
 
 #[elrond_wasm::contract]
 pub trait StablecoinV2:
     fees::FeesModule
+    + hedging_agents::HedgingAgentsModule
+    + hedging_token::HedgingTokenModule
     + math::MathModule
+    + pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
     + stablecoin_token::StablecoinTokenModule
 {
     #[init]
-    fn init(&self, price_aggregator_address: ManagedAddress) -> SCResult<()> {
+    fn init(
+        &self,
+        price_aggregator_address: ManagedAddress,
+        min_hedging_period_seconds: u64,
+    ) -> SCResult<()> {
         require!(
             self.blockchain()
                 .is_smart_contract(&price_aggregator_address),
@@ -32,6 +34,8 @@ pub trait StablecoinV2:
 
         self.price_aggregator_address()
             .set(&price_aggregator_address);
+
+        self.min_hedging_period().set(&min_hedging_period_seconds);
 
         Ok(())
     }
@@ -53,13 +57,6 @@ pub trait StablecoinV2:
                 && max_fees_percentage < math::PERCENTAGE_PRECISION,
             "Invalid fees percentages"
         );
-
-        if self.pool_for_collateral(&collateral_id).is_empty() {
-            self.pool_for_collateral(&collateral_id).set(&Pool {
-                collateral_amount: BigUint::zero(),
-                stablecoin_amount: BigUint::zero(),
-            });
-        }
 
         self.collateral_ticker(&collateral_id)
             .set(&collateral_ticker);
@@ -92,11 +89,7 @@ pub trait StablecoinV2:
     ) -> SCResult<()> {
         self.require_collateral_in_whitelist(&payment_token)?;
 
-        let collateral_ticker = self.collateral_ticker(&payment_token).get();
-        let collateral_value_in_dollars = self
-            .get_price_for_pair(collateral_ticker, ManagedBuffer::from(DOLLAR_TICKER))
-            .ok_or("Could not get collateral value in dollars")?;
-
+        let collateral_value_in_dollars = self.get_collateral_value_in_dollars(&payment_token)?;
         let transaction_fees_percentage = self.get_mint_transaction_fees_percentage(&payment_token);
         let fees_amount_in_collateral =
             self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
@@ -105,12 +98,10 @@ pub trait StablecoinV2:
         let stablecoin_amount = &collateral_value_in_dollars * &collateral_amount;
         require!(stablecoin_amount >= min_amount_out, "Below min amount");
 
-        self.pool_for_collateral(&payment_token).update(|pool| {
+        self.update_pool(&payment_token, |pool| {
             pool.collateral_amount += &collateral_amount;
             pool.stablecoin_amount += &stablecoin_amount;
         });
-        self.reserves(&payment_token)
-            .update(|reserves| *reserves += collateral_amount);
         self.accumulated_tx_fees(&payment_token)
             .update(|accumulated_fees| *accumulated_fees += fees_amount_in_collateral);
 
@@ -138,20 +129,16 @@ pub trait StablecoinV2:
         );
         self.require_collateral_in_whitelist(&collateral_id)?;
 
-        let collateral_ticker = self.collateral_ticker(&payment_token).get();
-        let collateral_value_in_dollars = self
-            .get_price_for_pair(collateral_ticker, ManagedBuffer::from(DOLLAR_TICKER))
-            .ok_or("Could not get collateral value in dollars")?;
-
+        let collateral_value_in_dollars = self.get_collateral_value_in_dollars(&collateral_id)?;
         let total_value_in_collateral = &payment_amount / &collateral_value_in_dollars;
-        let transaction_fees_percentage = self.get_burn_transaction_fees_percentage(&payment_token);
+        let transaction_fees_percentage = self.get_burn_transaction_fees_percentage(&collateral_id);
         let fees_amount_in_collateral =
             self.calculate_percentage_of(&transaction_fees_percentage, &total_value_in_collateral);
 
         let collateral_amount = &total_value_in_collateral - &fees_amount_in_collateral;
         require!(collateral_amount >= min_amount_out, "Below min amount");
 
-        self.pool_for_collateral(&collateral_id).update(|pool| {
+        self.update_pool(&collateral_id, |pool| {
             require!(
                 pool.collateral_amount >= collateral_amount,
                 "Insufficient funds for swap"
@@ -168,8 +155,6 @@ pub trait StablecoinV2:
 
             Ok(())
         })?;
-        self.reserves(&collateral_id)
-            .update(|reserves| *reserves -= &collateral_amount);
         self.accumulated_tx_fees(&collateral_id)
             .update(|accumulated_fees| *accumulated_fees += fees_amount_in_collateral);
 
@@ -181,42 +166,4 @@ pub trait StablecoinV2:
 
         Ok(())
     }
-
-    // --- force close position if coverage_ratio is >=1
-
-    // -- Slippage prot for hedgers: max oracle value for hedging, min value for exit
-
-    // private
-
-    fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {
-        require!(
-            self.collateral_whitelist().contains(&collateral_id),
-            "collateral is not whitelisted"
-        );
-        Ok(())
-    }
-
-    // storage
-
-    #[view(getCollateralWhitelist)]
-    #[storage_mapper("collateralWhitelist")]
-    fn collateral_whitelist(&self) -> SetMapper<TokenIdentifier>;
-
-    #[view(getCollateralTicker)]
-    #[storage_mapper("collateralTicker")]
-    fn collateral_ticker(
-        &self,
-        collateral_id: &TokenIdentifier,
-    ) -> SingleValueMapper<ManagedBuffer>;
-
-    #[view(getMaxLeverage)]
-    #[storage_mapper("maxLeverage")]
-    fn max_leverage(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
-
-    #[view(getPoolForCollateral)]
-    #[storage_mapper("poolForCollateral")]
-    fn pool_for_collateral(
-        &self,
-        collateral_id: &TokenIdentifier,
-    ) -> SingleValueMapper<Pool<Self::Api>>;
 }

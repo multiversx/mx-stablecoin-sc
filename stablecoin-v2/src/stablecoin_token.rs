@@ -16,7 +16,7 @@ pub trait StablecoinTokenModule {
 
         let token_display_name = ManagedBuffer::from(STABLE_COIN_NAME);
         let token_ticker = ManagedBuffer::from(STABLE_COIN_TICKER);
-        let initial_supply = BigUint::from(1u32);
+        let initial_supply = BigUint::zero();
 
         Ok(self
             .send()
@@ -42,11 +42,27 @@ pub trait StablecoinTokenModule {
             .with_callback(self.callbacks().stablecoin_issue_callback()))
     }
 
+    #[endpoint(setStablecoinRoles)]
+    fn set_stablecoin_roles(&self) -> AsyncCall {
+        let own_sc_address = self.blockchain().get_sc_address();
+        let token_id = self.stablecoin_token_id().get();
+        let roles = [EsdtLocalRole::Mint, EsdtLocalRole::Burn];
+
+        self.send()
+            .esdt_system_sc_proxy()
+            .set_special_roles(
+                &own_sc_address,
+                &token_id,
+                (&roles[..]).into_iter().cloned(),
+            )
+            .async_call()
+    }
+
     fn mint_stablecoin(&self, amount: &BigUint) {
         self.send()
             .esdt_local_mint(&self.stablecoin_token_id().get(), 0, amount);
 
-        self.total_circulating_supply()
+        self.stablecoin_total_circulating_supply()
             .update(|total| *total += amount);
     }
 
@@ -54,7 +70,7 @@ pub trait StablecoinTokenModule {
         self.send()
             .esdt_local_burn(&self.stablecoin_token_id().get(), 0, amount);
 
-        self.total_circulating_supply()
+        self.stablecoin_total_circulating_supply()
             .update(|total| *total -= amount);
     }
 
@@ -66,17 +82,6 @@ pub trait StablecoinTokenModule {
     fn mint_and_send_stablecoin(&self, to: &ManagedAddress, amount: &BigUint) {
         self.mint_stablecoin(amount);
         self.send_stablecoin(to, amount);
-    }
-
-    fn set_stablecoin_roles(&self) -> AsyncCall {
-        let own_sc_address = self.blockchain().get_sc_address();
-        let token_id = self.stablecoin_token_id().get();
-        let roles = [EsdtLocalRole::Mint, EsdtLocalRole::Burn];
-
-        self.send()
-            .esdt_system_sc_proxy()
-            .set_special_roles(&own_sc_address, &token_id, (&roles[..]).into_iter().cloned())
-            .async_call()
     }
 
     #[callback]
@@ -109,7 +114,7 @@ pub trait StablecoinTokenModule {
     #[storage_mapper("stablecoinTokenId")]
     fn stablecoin_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
-    #[view(getTotalCirculatingSupply)]
-    #[storage_mapper("totalCirculatingSupply")]
-    fn total_circulating_supply(&self) -> SingleValueMapper<BigUint>;
+    #[view(getStablecoinTotalCirculatingSupply)]
+    #[storage_mapper("stablecoinTotalCirculatingSupply")]
+    fn stablecoin_total_circulating_supply(&self) -> SingleValueMapper<BigUint>;
 }

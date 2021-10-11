@@ -3,11 +3,13 @@ elrond_wasm::imports!();
 use crate::math::ONE;
 
 #[elrond_wasm::module]
-pub trait FeesModule: crate::math::MathModule {
+pub trait FeesModule:
+    crate::math::MathModule + crate::pools::PoolsModule + price_aggregator_proxy::PriceAggregatorModule
+{
     #[view(getCoverageRatio)]
     fn get_coverage_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let reserves = self.reserves(collateral_id).get();
-        let total_covered = self.total_covered(collateral_id).get();
+        let reserves = self.get_pool_reserves(collateral_id);
+        let total_covered = self.get_pool_amount_covered(collateral_id);
 
         self.calculate_ratio(&total_covered, &reserves)
     }
@@ -52,14 +54,20 @@ pub trait FeesModule: crate::math::MathModule {
         min_fees_percentage + self.multiply(&coverage_ratio, &percentage_diff)
     }
 
+    // The more collateral is covered, the more expensive it is to open a position
+    // This scales the same way as the burn transaction fees, so we use the same formula
+    #[view(getHedgingPositionOpenTransactionFeesPercentage)]
+    fn get_hedging_position_open_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        self.get_burn_transaction_fees_percentage(collateral_id)
+    }
+
+    // The more collateral is covered, the less expensive it is to exit
+    #[view(getHedgingPositionCloseTransactionFeesPercentage)]
+    fn get_hedging_position_close_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        self.get_mint_transaction_fees_percentage(collateral_id)
+    }
+
     // storage
-
-    #[storage_mapper("reserves")]
-    fn reserves(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
-
-    #[view(getTotalCovered)]
-    #[storage_mapper("totalCovered")]
-    fn total_covered(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[storage_mapper("minMaxFeesPercentage")]
     fn min_max_fees_percentage(
@@ -67,6 +75,7 @@ pub trait FeesModule: crate::math::MathModule {
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<(BigUint, BigUint)>;
 
+    // TODO: Don't accumulate here, but rather split the fees when the transaction is processed ?
     #[storage_mapper("accumulatedTxFees")]
     fn accumulated_tx_fees(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 }

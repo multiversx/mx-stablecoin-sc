@@ -6,14 +6,6 @@ use crate::math::ONE;
 pub trait FeesModule:
     crate::math::MathModule + crate::pools::PoolsModule + price_aggregator_proxy::PriceAggregatorModule
 {
-    #[view(getCoverageRatio)]
-    fn get_coverage_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let reserves = self.get_pool_reserves(collateral_id);
-        let total_covered = self.get_pool_amount_covered(collateral_id);
-
-        self.calculate_ratio(&total_covered, &reserves)
-    }
-
     // mint fees decrease as coverage ratio increases
     #[view(getMintTransactionFeesPercentage)]
     fn get_mint_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
@@ -75,7 +67,8 @@ pub trait FeesModule:
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<(BigUint, BigUint)>;
 
-    // TODO: Don't accumulate here, but rather split the fees when the transaction is processed ?
+    // TODO: Don't accumulate here, but rather split the fees when the transaction is processed
+    // These fees will go to the liquidity providers
     #[storage_mapper("accumulatedTxFees")]
     fn accumulated_tx_fees(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 }

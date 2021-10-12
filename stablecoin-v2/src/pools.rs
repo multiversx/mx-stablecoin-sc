@@ -8,6 +8,8 @@ pub struct Pool<M: ManagedTypeApi> {
     pub collateral_amount: BigUint<M>,
     pub stablecoin_amount: BigUint<M>,
     pub total_collateral_covered: BigUint<M>,
+    pub hedging_agents_profit: BigUint<M>, // TODO: Update to contain the extra collateral after pool rebalancing,
+    // used to pay out rewards to hedging agents on close position
     pub hedging_positions: Vec<u64>,
 }
 
@@ -16,14 +18,27 @@ impl<M: ManagedTypeApi> Pool<M> {
         Pool {
             collateral_amount: BigUint::zero(api.clone()),
             stablecoin_amount: BigUint::zero(api.clone()),
-            total_collateral_covered: BigUint::zero(api),
+            total_collateral_covered: BigUint::zero(api.clone()),
+            hedging_agents_profit: BigUint::zero(api),
             hedging_positions: Vec::new(),
         }
     }
 }
 
 #[elrond_wasm::module]
-pub trait PoolsModule: price_aggregator_proxy::PriceAggregatorModule {
+pub trait PoolsModule:
+    crate::math::MathModule + price_aggregator_proxy::PriceAggregatorModule
+{
+    #[view(getCoverageRatio)]
+    fn get_coverage_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        let reserves = self.get_pool_reserves(collateral_id);
+        let total_covered = self.get_pool_amount_covered(collateral_id);
+
+        self.calculate_ratio(&total_covered, &reserves)
+    }
+
+    // TODO: Pool rebalancing endpoint
+
     fn get_pool(&self, collateral_id: &TokenIdentifier) -> Pool<Self::Api> {
         if self.pool_for_collateral(collateral_id).is_empty() {
             Pool::new(self.raw_vm_api())
@@ -65,7 +80,8 @@ pub trait PoolsModule: price_aggregator_proxy::PriceAggregatorModule {
     ) -> SCResult<BigUint> {
         let collateral_ticker = self.collateral_ticker(collateral_id).get();
         self.get_price_for_pair(collateral_ticker, ManagedBuffer::from(DOLLAR_TICKER))
-            .ok_or("Could not get collateral value in dollars").into()
+            .ok_or("Could not get collateral value in dollars")
+            .into()
     }
 
     fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {

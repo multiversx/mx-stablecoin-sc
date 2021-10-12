@@ -35,7 +35,8 @@ pub trait StablecoinV2:
         self.price_aggregator_address()
             .set(&price_aggregator_address);
 
-        self.min_hedging_period().set(&min_hedging_period_seconds);
+        self.min_hedging_period_seconds()
+            .set(&min_hedging_period_seconds);
 
         Ok(())
     }
@@ -108,8 +109,6 @@ pub trait StablecoinV2:
         let caller = self.blockchain().get_caller();
         self.mint_and_send_stablecoin(&caller, &stablecoin_amount);
 
-        // TODO: try re-balance the pool here?
-
         Ok(())
     }
 
@@ -143,8 +142,6 @@ pub trait StablecoinV2:
                 pool.collateral_amount >= collateral_amount,
                 "Insufficient funds for swap"
             );
-
-            // TODO: This should be fixed by re-balancing the pool, rather than throwing an error
             require!(
                 pool.stablecoin_amount >= payment_amount,
                 "Too many stablecoins paid"

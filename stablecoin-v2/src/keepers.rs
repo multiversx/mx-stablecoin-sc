@@ -2,6 +2,8 @@ elrond_wasm::imports!();
 
 use crate::{hedging_agents::HedgingPosition, math::ONE};
 
+// TODO: Pay some part of the hedging position open fees to keepers as rewards
+
 #[elrond_wasm::module]
 pub trait KeepersModule:
     crate::fees::FeesModule
@@ -24,10 +26,16 @@ pub trait KeepersModule:
             "May only force close after limit hedge amount is passed"
         );
 
-        self.close_position(nft_nonce, &hedging_position)?;
-        hedging_position.withdraw_amount_after_force_close =
-            Some(self.get_withdraw_amount_and_update_fees(&hedging_position, None)?);
+        self.close_position(&hedging_position)?;
 
+        let withdraw_amount = self.get_withdraw_amount_and_update_fees(&hedging_position, None)?;
+        self.update_pool_after_closed_position(
+            &hedging_position.collateral_id,
+            &hedging_position.deposit_amount,
+            &withdraw_amount,
+        );
+
+        hedging_position.withdraw_amount_after_force_close = Some(withdraw_amount);
         self.hedging_position(nft_nonce).set(&hedging_position);
 
         Ok(())
@@ -41,23 +49,23 @@ pub trait KeepersModule:
         self.require_not_closed(&hedging_position)?;
 
         let margin_ratio = self.calculate_margin_ratio(&hedging_position)?;
-        let hedging_maintenance_ratio = self.hedging_maintenance_ratio().get();
+        let hedging_maintenance_ratio = self
+            .hedging_maintenance_ratio(&hedging_position.collateral_id)
+            .get();
         require!(
             margin_ratio <= hedging_maintenance_ratio,
             "Can only liquidate if margin ratio is below expected amount"
         );
 
-        self.update_pool(&hedging_position.collateral_id, |pool| {
-            pool.collateral_amount += &hedging_position.deposit_amount
-        });
-        self.close_position(nft_nonce, &hedging_position)?;
+        self.close_position(&hedging_position)?;
+        self.update_pool_after_closed_position(
+            &hedging_position.collateral_id,
+            &hedging_position.deposit_amount,
+            &BigUint::zero(),
+        );
+
         self.hedging_position(nft_nonce).clear();
 
-        Ok(())
-    }
-
-    #[endpoint(rebalancePool)]
-    fn rebalance_pool(&self, _collateral_id: TokenIdentifier) -> SCResult<()> {
         Ok(())
     }
 

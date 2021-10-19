@@ -11,6 +11,9 @@ mod math;
 mod pools;
 mod stablecoin_token;
 
+// TODO: Check pool collateral values before subtracting, give other tokens instead for leftover amounts
+// TODO: Add events
+
 #[elrond_wasm::contract]
 pub trait StablecoinV2:
     fees::FeesModule
@@ -29,7 +32,6 @@ pub trait StablecoinV2:
         min_hedging_period_seconds: u64,
         target_hedging_ratio: BigUint,
         hedging_ratio_limit: BigUint,
-        hedging_maintenance_ratio: BigUint,
     ) -> SCResult<()> {
         require!(
             self.blockchain()
@@ -44,8 +46,6 @@ pub trait StablecoinV2:
             .set(&min_hedging_period_seconds);
         self.target_hedging_ratio().set(&target_hedging_ratio);
         self.hedging_ratio_limit().set(&hedging_ratio_limit);
-        self.hedging_maintenance_ratio()
-            .set(&hedging_maintenance_ratio);
 
         Ok(())
     }
@@ -61,6 +61,7 @@ pub trait StablecoinV2:
         max_leverage: BigUint,
         min_fees_percentage: BigUint,
         max_fees_percentage: BigUint,
+        hedging_maintenance_ratio: BigUint,
     ) -> SCResult<()> {
         require!(
             min_fees_percentage <= max_fees_percentage
@@ -73,6 +74,8 @@ pub trait StablecoinV2:
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
             .set(&(min_fees_percentage, max_fees_percentage));
+        self.hedging_maintenance_ratio(&collateral_id)
+            .set(&hedging_maintenance_ratio);
         let _ = self.collateral_whitelist().insert(collateral_id);
 
         Ok(())
@@ -84,6 +87,7 @@ pub trait StablecoinV2:
         self.collateral_ticker(&collateral_id).clear();
         self.max_leverage(&collateral_id).clear();
         self.min_max_fees_percentage(&collateral_id).clear();
+        self.hedging_maintenance_ratio(&collateral_id).clear();
         let _ = self.collateral_whitelist().remove(&collateral_id);
     }
 

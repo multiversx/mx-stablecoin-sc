@@ -92,8 +92,6 @@ pub trait HedgingAgentsModule:
         let caller = self.blockchain().get_caller();
         let nft_nonce = self.create_and_send_hedging_token(&caller);
 
-        pool.hedging_positions.push(nft_nonce);
-
         self.set_pool(&payment_token, &pool);
         self.hedging_position(nft_nonce).set(&hedging_position);
 
@@ -194,12 +192,21 @@ pub trait HedgingAgentsModule:
         let withdraw_amount = match hedging_position.withdraw_amount_after_force_close {
             Some(amt) => amt,
             None => {
-                self.close_position(payment_nonce, &hedging_position)?;
-                self.get_withdraw_amount_and_update_fees(&hedging_position, Some(min_oracle_value))?
+                self.close_position(&hedging_position)?;
+
+                let amt = self.get_withdraw_amount_and_update_fees(
+                    &hedging_position,
+                    Some(min_oracle_value),
+                )?;
+                self.update_pool_after_closed_position(
+                    &hedging_position.collateral_id,
+                    &hedging_position.deposit_amount,
+                    &amt,
+                );
+
+                amt
             }
         };
-
-        // TODO: Check if there is enough balance, otherwise, send some other redeemable token
 
         self.hedging_position(payment_nonce).clear();
         self.burn_hedging_token(payment_nonce);
@@ -219,11 +226,7 @@ pub trait HedgingAgentsModule:
     // private
 
     // deduplicates code for close, force-close and liquidate
-    fn close_position(
-        &self,
-        nft_nonce: u64,
-        hedging_position: &HedgingPosition<Self::Api>,
-    ) -> SCResult<()> {
+    fn close_position(&self, hedging_position: &HedgingPosition<Self::Api>) -> SCResult<()> {
         self.require_not_closed(hedging_position)?;
 
         let mut pool = self.get_pool(&hedging_position.collateral_id);
@@ -236,18 +239,12 @@ pub trait HedgingAgentsModule:
             "Trying to close too early"
         );
 
-        let pos_index = pool
-            .hedging_positions
-            .iter()
-            .position(|nonce| *nonce == nft_nonce)
-            .ok_or("Could not close position")?;
-        let _ = pool.hedging_positions.swap_remove(pos_index);
-
         let amount_to_cover_in_stablecoin = self.multiply(
             &hedging_position.oracle_value_at_deposit_time,
             &hedging_position.covered_amount,
         );
         pool.total_covered_value_in_stablecoin -= amount_to_cover_in_stablecoin;
+        pool.total_collateral_covered -= &hedging_position.covered_amount;
 
         self.set_pool(&hedging_position.collateral_id, &pool);
 
@@ -316,6 +313,25 @@ pub trait HedgingAgentsModule:
         })
     }
 
+    fn update_pool_after_closed_position(
+        &self,
+        collateral_id: &TokenIdentifier,
+        deposit_amount: &BigUint,
+        withdraw_amount: &BigUint,
+    ) {
+        if withdraw_amount > deposit_amount {
+            let hedger_reward = withdraw_amount - deposit_amount;
+            self.update_pool(collateral_id, |pool| {
+                pool.collateral_amount -= hedger_reward
+            });
+        } else {
+            let hedger_penalty = deposit_amount - withdraw_amount;
+            self.update_pool(collateral_id, |pool| {
+                pool.collateral_amount += hedger_penalty
+            });
+        }
+    }
+
     #[inline(always)]
     fn calculate_leverage(
         &self,
@@ -373,6 +389,10 @@ pub trait HedgingAgentsModule:
     #[storage_mapper("minHedgingPeriodSeconds")]
     fn min_hedging_period_seconds(&self) -> SingleValueMapper<u64>;
 
+    #[view(getMaxLeverage)]
+    #[storage_mapper("maxLeverage")]
+    fn max_leverage(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
+
     #[view(getTargetHedgingRatio)]
     #[storage_mapper("targetHedgingRatio")]
     fn target_hedging_ratio(&self) -> SingleValueMapper<BigUint>;
@@ -383,5 +403,8 @@ pub trait HedgingAgentsModule:
 
     #[view(getHedgingMaintenanceRatio)]
     #[storage_mapper("hedgingMaintenanceRatio")]
-    fn hedging_maintenance_ratio(&self) -> SingleValueMapper<BigUint>;
+    fn hedging_maintenance_ratio(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<BigUint>;
 }

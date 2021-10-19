@@ -9,9 +9,6 @@ pub struct Pool<M: ManagedTypeApi> {
     pub stablecoin_amount: BigUint<M>,
     pub total_collateral_covered: BigUint<M>,
     pub total_covered_value_in_stablecoin: BigUint<M>,
-    pub hedging_agents_profit: BigUint<M>, // TODO: Update to contain the extra collateral after pool rebalancing,
-    // used to pay out rewards to hedging agents on close position
-    pub hedging_positions: Vec<u64>,
 }
 
 impl<M: ManagedTypeApi> Pool<M> {
@@ -21,8 +18,6 @@ impl<M: ManagedTypeApi> Pool<M> {
             stablecoin_amount: BigUint::zero(api.clone()),
             total_collateral_covered: BigUint::zero(api.clone()),
             total_covered_value_in_stablecoin: BigUint::zero(api.clone()),
-            hedging_agents_profit: BigUint::zero(api),
-            hedging_positions: Vec::new(),
         }
     }
 }
@@ -104,10 +99,6 @@ pub trait PoolsModule:
         &self,
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<ManagedBuffer>;
-
-    #[view(getMaxLeverage)]
-    #[storage_mapper("maxLeverage")]
-    fn max_leverage(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getPoolForCollateral)]
     #[storage_mapper("poolForCollateral")]

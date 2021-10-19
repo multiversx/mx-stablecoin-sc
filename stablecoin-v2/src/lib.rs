@@ -6,6 +6,7 @@ elrond_wasm::derive_imports!();
 mod fees;
 mod hedging_agents;
 mod hedging_token;
+mod keepers;
 mod math;
 mod pools;
 mod stablecoin_token;
@@ -15,6 +16,7 @@ pub trait StablecoinV2:
     fees::FeesModule
     + hedging_agents::HedgingAgentsModule
     + hedging_token::HedgingTokenModule
+    + keepers::KeepersModule
     + math::MathModule
     + pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
@@ -25,6 +27,8 @@ pub trait StablecoinV2:
         &self,
         price_aggregator_address: ManagedAddress,
         min_hedging_period_seconds: u64,
+        target_hedging_ratio: BigUint,
+        hedging_ratio_limit: BigUint,
     ) -> SCResult<()> {
         require!(
             self.blockchain()
@@ -37,6 +41,8 @@ pub trait StablecoinV2:
 
         self.min_hedging_period_seconds()
             .set(&min_hedging_period_seconds);
+        self.target_hedging_ratio().set(&target_hedging_ratio);
+        self.hedging_ratio_limit().set(&hedging_ratio_limit);
 
         Ok(())
     }

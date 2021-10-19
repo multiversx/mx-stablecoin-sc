@@ -8,6 +8,7 @@ pub struct Pool<M: ManagedTypeApi> {
     pub collateral_amount: BigUint<M>,
     pub stablecoin_amount: BigUint<M>,
     pub total_collateral_covered: BigUint<M>,
+    pub total_covered_value_in_stablecoin: BigUint<M>,
     pub hedging_agents_profit: BigUint<M>, // TODO: Update to contain the extra collateral after pool rebalancing,
     // used to pay out rewards to hedging agents on close position
     pub hedging_positions: Vec<u64>,
@@ -19,6 +20,7 @@ impl<M: ManagedTypeApi> Pool<M> {
             collateral_amount: BigUint::zero(api.clone()),
             stablecoin_amount: BigUint::zero(api.clone()),
             total_collateral_covered: BigUint::zero(api.clone()),
+            total_covered_value_in_stablecoin: BigUint::zero(api.clone()),
             hedging_agents_profit: BigUint::zero(api),
             hedging_positions: Vec::new(),
         }
@@ -36,8 +38,6 @@ pub trait PoolsModule:
 
         self.calculate_ratio(&total_covered, &reserves)
     }
-
-    // TODO: Pool rebalancing endpoint
 
     fn get_pool(&self, collateral_id: &TokenIdentifier) -> Pool<Self::Api> {
         if self.pool_for_collateral(collateral_id).is_empty() {
@@ -86,7 +86,7 @@ pub trait PoolsModule:
 
     fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {
         require!(
-            self.collateral_whitelist().contains(&collateral_id),
+            self.collateral_whitelist().contains(collateral_id),
             "collateral is not whitelisted"
         );
         Ok(())

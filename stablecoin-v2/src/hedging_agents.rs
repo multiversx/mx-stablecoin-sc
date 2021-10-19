@@ -13,6 +13,12 @@ pub struct HedgingPosition<M: ManagedTypeApi> {
     pub withdraw_amount_after_force_close: Option<BigUint<M>>,
 }
 
+impl<M: ManagedTypeApi> HedgingPosition<M> {
+    pub fn is_closed(&self) -> bool {
+        self.withdraw_amount_after_force_close.is_some()
+    }
+}
+
 #[elrond_wasm::module]
 pub trait HedgingAgentsModule:
     crate::fees::FeesModule
@@ -39,11 +45,25 @@ pub trait HedgingAgentsModule:
         );
 
         let mut pool = self.get_pool(&payment_token);
+        let target_hedge_amount = self.calculate_target_hedge_amount(&pool.collateral_amount);
+        require!(
+            pool.total_collateral_covered <= target_hedge_amount,
+            "Over target hedge amount, no new positions may be opened"
+        );
+
         pool.total_collateral_covered += &amount_to_cover;
         require!(
             pool.total_collateral_covered <= pool.collateral_amount,
             "Trying to cover too much collateral"
         );
+        require!(
+            pool.total_collateral_covered <= target_hedge_amount,
+            "Position would go over target hedge amount"
+        );
+
+        let amount_to_cover_in_stablecoin =
+            self.multiply(&collateral_value_in_dollars, &amount_to_cover);
+        pool.total_covered_value_in_stablecoin += amount_to_cover_in_stablecoin;
 
         let transaction_fees_percentage =
             self.get_hedging_position_open_transaction_fees_percentage(&payment_token);
@@ -51,9 +71,15 @@ pub trait HedgingAgentsModule:
             self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
         let collateral_amount = &payment_amount - &fees_amount_in_collateral;
 
-        let max_leverage = self.max_leverage(&payment_token).get();
-        let position_leverage = self.calculate_leverage(&collateral_amount, &amount_to_cover);
-        require!(position_leverage <= max_leverage, "Leverage too high");
+        let hedging_position = HedgingPosition {
+            collateral_id: payment_token.clone(),
+            deposit_amount: collateral_amount,
+            covered_amount: amount_to_cover,
+            oracle_value_at_deposit_time: collateral_value_in_dollars,
+            creation_timestamp: self.blockchain().get_block_timestamp(),
+            withdraw_amount_after_force_close: None,
+        };
+        self.require_under_max_leverage(&hedging_position)?;
 
         self.accumulated_tx_fees(&payment_token)
             .update(|accumulated_fees| *accumulated_fees += fees_amount_in_collateral);
@@ -64,14 +90,82 @@ pub trait HedgingAgentsModule:
         pool.hedging_positions.push(nft_nonce);
 
         self.set_pool(&payment_token, &pool);
-        self.hedging_position(nft_nonce).set(&HedgingPosition {
-            collateral_id: payment_token,
-            deposit_amount: collateral_amount,
-            covered_amount: amount_to_cover,
-            oracle_value_at_deposit_time: collateral_value_in_dollars,
-            creation_timestamp: self.blockchain().get_block_timestamp(),
-            withdraw_amount_after_force_close: None,
-        });
+        self.hedging_position(nft_nonce).set(&hedging_position);
+
+        Ok(())
+    }
+
+    #[payable("*")]
+    #[endpoint(addMargin)]
+    fn add_margin(&self) -> SCResult<()> {
+        let nr_required_transfers = 2;
+        let transfers: Vec<EsdtTokenPayment<Self::Api>> =
+            self.call_value().all_esdt_transfers().into_iter().collect();
+        require!(
+            transfers.len() == nr_required_transfers,
+            "Invalid number of transfers"
+        );
+
+        let first_transfer = &transfers[0];
+        let second_transfer = &transfers[1];
+
+        let hedging_token_id = self.hedging_token_id().get();
+        require!(
+            first_transfer.token_identifier == hedging_token_id,
+            "First token should be the hedging NFT"
+        );
+
+        let nft_nonce = first_transfer.token_nonce;
+        self.hedging_position(nft_nonce).update(|hedging_pos| {
+            require!(
+                second_transfer.token_identifier == hedging_pos.collateral_id,
+                "Second token should be the collateral for the position"
+            );
+            self.require_not_closed(hedging_pos)?;
+
+            hedging_pos.deposit_amount += &second_transfer.amount;
+            self.require_under_max_leverage(hedging_pos)?;
+
+            Ok(())
+        })?;
+
+        // return the nft
+        let caller = self.blockchain().get_caller();
+        self.send_hedging_token(&caller, nft_nonce);
+
+        Ok(())
+    }
+
+    #[payable("*")]
+    #[endpoint(removeMargin)]
+    fn remove_margin(
+        &self,
+        #[payment_token] payment_token: TokenIdentifier,
+        #[payment_nonce] payment_nonce: u64,
+        amount_to_remove: BigUint,
+    ) -> SCResult<()> {
+        let hedging_token_id = self.hedging_token_id().get();
+        require!(
+            payment_token == hedging_token_id,
+            "Token should be the hedging NFT"
+        );
+
+        self.hedging_position(payment_nonce).update(|hedging_pos| {
+            require!(
+                amount_to_remove < hedging_pos.deposit_amount,
+                "Remove amount higher than total deposit"
+            );
+            self.require_not_closed(hedging_pos)?;
+
+            hedging_pos.deposit_amount -= &amount_to_remove;
+            self.require_under_max_leverage(hedging_pos)?;
+
+            Ok(())
+        })?;
+
+        // return the nft
+        let caller = self.blockchain().get_caller();
+        self.send_hedging_token(&caller, payment_nonce);
 
         Ok(())
     }
@@ -115,33 +209,7 @@ pub trait HedgingAgentsModule:
         Ok(())
     }
 
-    #[endpoint(forceCloseHedgingPosition)]
-    fn force_close_hedging_position(&self, nft_nonce: u64) -> SCResult<()> {
-        let mut hedging_position = self.hedging_position(nft_nonce).get();
-        let coverage_ratio = self.get_coverage_ratio(&hedging_position.collateral_id);
-        require!(
-            coverage_ratio > ONE,
-            "Coverage ratio not high enough to force close"
-        );
-
-        hedging_position.withdraw_amount_after_force_close =
-            Some(self.close_position(nft_nonce, &hedging_position, None)?);
-
-        self.hedging_position(nft_nonce).set(&hedging_position);
-
-        Ok(())
-    }
-
     // private
-
-    #[inline(always)]
-    fn calculate_leverage(
-        &self,
-        collateral_amount: &BigUint,
-        amount_to_cover: &BigUint,
-    ) -> BigUint {
-        self.calculate_ratio(&(collateral_amount + amount_to_cover), amount_to_cover)
-    }
 
     // deduplicates code for close and force-close
     fn close_position(
@@ -150,6 +218,8 @@ pub trait HedgingAgentsModule:
         hedging_position: &HedgingPosition<Self::Api>,
         opt_min_oracle_value: Option<BigUint>,
     ) -> SCResult<BigUint> {
+        self.require_not_closed(hedging_position)?;
+
         let mut pool = self.get_pool(&hedging_position.collateral_id);
 
         let current_time = self.blockchain().get_block_timestamp();
@@ -207,9 +277,55 @@ pub trait HedgingAgentsModule:
             .ok_or("Could not close position")?;
         let _ = pool.hedging_positions.swap_remove(pos_index);
 
+        let amount_to_cover_in_stablecoin = self.multiply(
+            &hedging_position.oracle_value_at_deposit_time,
+            &hedging_position.covered_amount,
+        );
+        pool.total_covered_value_in_stablecoin -= amount_to_cover_in_stablecoin;
+
         self.set_pool(&hedging_position.collateral_id, &pool);
 
         Ok(withdraw_amount)
+    }
+
+    #[inline(always)]
+    fn calculate_leverage(
+        &self,
+        collateral_amount: &BigUint,
+        amount_to_cover: &BigUint,
+    ) -> BigUint {
+        self.calculate_ratio(&(collateral_amount + amount_to_cover), collateral_amount)
+    }
+
+    #[inline(always)]
+    fn calculate_target_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
+        let target_hedging_ratio = self.target_hedging_ratio().get();
+        self.calculate_percentage_of(&target_hedging_ratio, collateral_amount)
+    }
+
+    #[inline(always)]
+    fn calculate_limit_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
+        let hedging_ratio_limit = self.hedging_ratio_limit().get();
+        self.calculate_percentage_of(&hedging_ratio_limit, collateral_amount)
+    }
+
+    fn require_under_max_leverage(
+        &self,
+        hedging_position: &HedgingPosition<Self::Api>,
+    ) -> SCResult<()> {
+        let max_leverage = self.max_leverage(&hedging_position.collateral_id).get();
+        let position_leverage = self.calculate_leverage(
+            &hedging_position.deposit_amount,
+            &hedging_position.covered_amount,
+        );
+        require!(position_leverage <= max_leverage, "Leverage too high");
+
+        Ok(())
+    }
+
+    fn require_not_closed(&self, hedging_position: &HedgingPosition<Self::Api>) -> SCResult<()> {
+        require!(!hedging_position.is_closed(), "Position already closed");
+        Ok(())
     }
 
     // storage
@@ -220,4 +336,12 @@ pub trait HedgingAgentsModule:
     #[view(getMinHedgingPeriodSeconds)]
     #[storage_mapper("minHedgingPeriodSeconds")]
     fn min_hedging_period_seconds(&self) -> SingleValueMapper<u64>;
+
+    #[view(getTargetHedgingRatio)]
+    #[storage_mapper("targetHedgingRatio")]
+    fn target_hedging_ratio(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getHedgingRatioLimit)]
+    #[storage_mapper("hedgingRatioLimit")]
+    fn hedging_ratio_limit(&self) -> SingleValueMapper<BigUint>;
 }

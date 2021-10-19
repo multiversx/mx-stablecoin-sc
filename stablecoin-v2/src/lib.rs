@@ -29,6 +29,7 @@ pub trait StablecoinV2:
         min_hedging_period_seconds: u64,
         target_hedging_ratio: BigUint,
         hedging_ratio_limit: BigUint,
+        hedging_maintenance_ratio: BigUint,
     ) -> SCResult<()> {
         require!(
             self.blockchain()
@@ -43,6 +44,8 @@ pub trait StablecoinV2:
             .set(&min_hedging_period_seconds);
         self.target_hedging_ratio().set(&target_hedging_ratio);
         self.hedging_ratio_limit().set(&hedging_ratio_limit);
+        self.hedging_maintenance_ratio()
+            .set(&hedging_maintenance_ratio);
 
         Ok(())
     }

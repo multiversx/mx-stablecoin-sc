@@ -3,6 +3,11 @@ elrond_wasm::derive_imports!();
 
 use crate::math::ONE;
 
+pub struct WithdrawAmountFeeSplit<M: ManagedTypeApi> {
+    pub withdraw_amount: BigUint<M>,
+    pub fees_amount: BigUint<M>,
+}
+
 #[derive(TypeAbi, TopEncode, TopDecode)]
 pub struct HedgingPosition<M: ManagedTypeApi> {
     pub collateral_id: TokenIdentifier<M>,
@@ -183,12 +188,14 @@ pub trait HedgingAgentsModule:
             payment_token == hedging_token_id,
             "May only pay with Hedging NFT"
         );
+        self.require_not_liquidated(payment_nonce)?;
 
         let hedging_position = self.hedging_position(payment_nonce).get();
         let withdraw_amount = match hedging_position.withdraw_amount_after_force_close {
             Some(amt) => amt,
             None => {
-                self.close_position(payment_nonce, &hedging_position, Some(min_oracle_value))?
+                self.close_position(payment_nonce, &hedging_position)?;
+                self.get_withdraw_amount_and_update_fees(&hedging_position, Some(min_oracle_value))?
             }
         };
 
@@ -211,13 +218,12 @@ pub trait HedgingAgentsModule:
 
     // private
 
-    // deduplicates code for close and force-close
+    // deduplicates code for close, force-close and liquidate
     fn close_position(
         &self,
         nft_nonce: u64,
         hedging_position: &HedgingPosition<Self::Api>,
-        opt_min_oracle_value: Option<BigUint>,
-    ) -> SCResult<BigUint> {
+    ) -> SCResult<()> {
         self.require_not_closed(hedging_position)?;
 
         let mut pool = self.get_pool(&hedging_position.collateral_id);
@@ -230,6 +236,43 @@ pub trait HedgingAgentsModule:
             "Trying to close too early"
         );
 
+        let pos_index = pool
+            .hedging_positions
+            .iter()
+            .position(|nonce| *nonce == nft_nonce)
+            .ok_or("Could not close position")?;
+        let _ = pool.hedging_positions.swap_remove(pos_index);
+
+        let amount_to_cover_in_stablecoin = self.multiply(
+            &hedging_position.oracle_value_at_deposit_time,
+            &hedging_position.covered_amount,
+        );
+        pool.total_covered_value_in_stablecoin -= amount_to_cover_in_stablecoin;
+
+        self.set_pool(&hedging_position.collateral_id, &pool);
+
+        Ok(())
+    }
+
+    fn get_withdraw_amount_and_update_fees(
+        &self,
+        hedging_position: &HedgingPosition<Self::Api>,
+        opt_min_oracle_value: Option<BigUint>,
+    ) -> SCResult<BigUint> {
+        let withdraw_amount_fees_pair =
+            self.calculate_withdraw_and_fee_amount(hedging_position, opt_min_oracle_value)?;
+
+        self.accumulated_tx_fees(&hedging_position.collateral_id)
+            .update(|accumulated_fees| *accumulated_fees += &withdraw_amount_fees_pair.fees_amount);
+
+        Ok(withdraw_amount_fees_pair.withdraw_amount)
+    }
+
+    fn calculate_withdraw_and_fee_amount(
+        &self,
+        hedging_position: &HedgingPosition<Self::Api>,
+        opt_min_oracle_value: Option<BigUint>,
+    ) -> SCResult<WithdrawAmountFeeSplit<Self::Api>> {
         let collateral_value_in_dollars =
             self.get_collateral_value_in_dollars(&hedging_position.collateral_id)?;
         if let Some(min_oracle_value) = opt_min_oracle_value {
@@ -263,29 +306,14 @@ pub trait HedgingAgentsModule:
             .get_hedging_position_close_transaction_fees_percentage(
                 &hedging_position.collateral_id,
             );
-        let fees_amount_in_collateral =
+        let fees_amount =
             self.calculate_percentage_of(&transaction_fees_percentage, &base_withdraw_amount);
-        let withdraw_amount = &base_withdraw_amount - &fees_amount_in_collateral;
+        let withdraw_amount = &base_withdraw_amount - &fees_amount;
 
-        self.accumulated_tx_fees(&hedging_position.collateral_id)
-            .update(|accumulated_fees| *accumulated_fees += fees_amount_in_collateral);
-
-        let pos_index = pool
-            .hedging_positions
-            .iter()
-            .position(|nonce| *nonce == nft_nonce)
-            .ok_or("Could not close position")?;
-        let _ = pool.hedging_positions.swap_remove(pos_index);
-
-        let amount_to_cover_in_stablecoin = self.multiply(
-            &hedging_position.oracle_value_at_deposit_time,
-            &hedging_position.covered_amount,
-        );
-        pool.total_covered_value_in_stablecoin -= amount_to_cover_in_stablecoin;
-
-        self.set_pool(&hedging_position.collateral_id, &pool);
-
-        Ok(withdraw_amount)
+        Ok(WithdrawAmountFeeSplit {
+            withdraw_amount,
+            fees_amount,
+        })
     }
 
     #[inline(always)]
@@ -328,6 +356,14 @@ pub trait HedgingAgentsModule:
         Ok(())
     }
 
+    fn require_not_liquidated(&self, nft_nonce: u64) -> SCResult<()> {
+        require!(
+            !self.hedging_position(nft_nonce).is_empty(),
+            "Position liquidated"
+        );
+        Ok(())
+    }
+
     // storage
 
     #[storage_mapper("hedgingPosition")]
@@ -344,4 +380,8 @@ pub trait HedgingAgentsModule:
     #[view(getHedgingRatioLimit)]
     #[storage_mapper("hedgingRatioLimit")]
     fn hedging_ratio_limit(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getHedgingMaintenanceRatio)]
+    #[storage_mapper("hedgingMaintenanceRatio")]
+    fn hedging_maintenance_ratio(&self) -> SingleValueMapper<BigUint>;
 }

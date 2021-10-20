@@ -66,8 +66,12 @@ pub trait HedgingAgentsModule:
             "Position would go over target hedge amount"
         );
 
-        let amount_to_cover_in_stablecoin =
-            self.multiply(&collateral_value_in_dollars, &amount_to_cover);
+        let collateral_precision = self.get_collateral_precision(&payment_token);
+        let amount_to_cover_in_stablecoin = self.multiply(
+            &collateral_value_in_dollars,
+            &amount_to_cover,
+            &collateral_precision,
+        );
         pool.total_covered_value_in_stablecoin += amount_to_cover_in_stablecoin;
 
         let transaction_fees_percentage =
@@ -90,7 +94,8 @@ pub trait HedgingAgentsModule:
             .update(|accumulated_fees| *accumulated_fees += fees_amount_in_collateral);
 
         let caller = self.blockchain().get_caller();
-        let nft_nonce = self.create_and_send_hedging_token(&caller);
+        let nft_nonce = self.create_hedging_token();
+        self.send_hedging_token(&caller, nft_nonce);
 
         self.set_pool(&payment_token, &pool);
         self.hedging_position(nft_nonce).set(&hedging_position);
@@ -239,9 +244,11 @@ pub trait HedgingAgentsModule:
             "Trying to close too early"
         );
 
+        let collateral_precision = self.get_collateral_precision(&hedging_position.collateral_id);
         let amount_to_cover_in_stablecoin = self.multiply(
             &hedging_position.oracle_value_at_deposit_time,
             &hedging_position.covered_amount,
+            &collateral_precision,
         );
         pool.total_covered_value_in_stablecoin -= amount_to_cover_in_stablecoin;
         pool.total_collateral_covered -= &hedging_position.covered_amount;
@@ -288,13 +295,13 @@ pub trait HedgingAgentsModule:
         // where x is deposit_amount and y is amount_to_cover
         let one = BigUint::from(ONE);
         let base_withdraw_amount = if price_ratio <= one {
-            let factor = one - price_ratio;
-            let extra_amount = self.multiply(&factor, &hedging_position.covered_amount);
+            let factor = &one - &price_ratio;
+            let extra_amount = self.multiply(&factor, &hedging_position.covered_amount, &one);
 
             &hedging_position.deposit_amount + &extra_amount
         } else {
-            let factor = price_ratio - one;
-            let deducted_amount = self.multiply(&factor, &hedging_position.covered_amount);
+            let factor = &price_ratio - &one;
+            let deducted_amount = self.multiply(&factor, &hedging_position.covered_amount, &one);
 
             &hedging_position.deposit_amount - &deducted_amount
         };
@@ -338,6 +345,7 @@ pub trait HedgingAgentsModule:
         collateral_amount: &BigUint,
         amount_to_cover: &BigUint,
     ) -> BigUint {
+        // x + y / x
         self.calculate_ratio(&(collateral_amount + amount_to_cover), collateral_amount)
     }
 

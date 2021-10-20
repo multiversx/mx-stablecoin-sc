@@ -79,6 +79,11 @@ pub trait PoolsModule:
             .into()
     }
 
+    fn get_collateral_precision(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        let collateral_num_decimals = self.collateral_num_decimals(collateral_id).get();
+        self.create_precision_biguint(collateral_num_decimals)
+    }
+
     fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {
         require!(
             self.collateral_whitelist().contains(collateral_id),
@@ -99,6 +104,9 @@ pub trait PoolsModule:
         &self,
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<ManagedBuffer>;
+
+    #[storage_mapper("collateralNumDecimals")]
+    fn collateral_num_decimals(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<u32>;
 
     #[view(getPoolForCollateral)]
     #[storage_mapper("poolForCollateral")]

@@ -58,6 +58,7 @@ pub trait StablecoinV2:
         &self,
         collateral_id: TokenIdentifier,
         collateral_ticker: ManagedBuffer,
+        collateral_num_decimals: u32,
         max_leverage: BigUint,
         min_fees_percentage: BigUint,
         max_fees_percentage: BigUint,
@@ -71,6 +72,8 @@ pub trait StablecoinV2:
 
         self.collateral_ticker(&collateral_id)
             .set(&collateral_ticker);
+        self.collateral_num_decimals(&collateral_id)
+            .set(&collateral_num_decimals);
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
             .set(&(min_fees_percentage, max_fees_percentage));
@@ -85,6 +88,7 @@ pub trait StablecoinV2:
     #[endpoint(removeCollateralFromWhitelist)]
     fn remove_collateral_from_whitelist(&self, collateral_id: TokenIdentifier) {
         self.collateral_ticker(&collateral_id).clear();
+        self.collateral_num_decimals(&collateral_id).clear();
         self.max_leverage(&collateral_id).clear();
         self.min_max_fees_percentage(&collateral_id).clear();
         self.hedging_maintenance_ratio(&collateral_id).clear();

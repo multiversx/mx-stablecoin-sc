@@ -12,18 +12,19 @@ pub trait FeesModule:
         let coverage_ratio = self.get_coverage_ratio(collateral_id);
         let (min_fees_percentage, max_fees_percentage) =
             self.min_max_fees_percentage(collateral_id).get();
+        let one = BigUint::from(ONE);
 
         if coverage_ratio == 0 {
             return max_fees_percentage;
         }
-        if coverage_ratio >= ONE {
+        if coverage_ratio >= one {
             return min_fees_percentage;
         }
 
         let percentage_diff = &max_fees_percentage - &min_fees_percentage;
 
         // max - (max - min) * coverage_ratio
-        max_fees_percentage - self.multiply(&coverage_ratio, &percentage_diff)
+        max_fees_percentage - self.multiply(&coverage_ratio, &percentage_diff, &one)
     }
 
     // burn fees decrease as coverage ratio decreases
@@ -32,30 +33,37 @@ pub trait FeesModule:
         let coverage_ratio = self.get_coverage_ratio(collateral_id);
         let (min_fees_percentage, max_fees_percentage) =
             self.min_max_fees_percentage(collateral_id).get();
+        let one = BigUint::from(ONE);
 
         if coverage_ratio == 0 {
             return min_fees_percentage;
         }
-        if coverage_ratio >= ONE {
+        if coverage_ratio >= one {
             return max_fees_percentage;
         }
 
         let percentage_diff = &max_fees_percentage - &min_fees_percentage;
 
         // min + (max - min) * coverage_ratio
-        min_fees_percentage + self.multiply(&coverage_ratio, &percentage_diff)
+        min_fees_percentage + self.multiply(&coverage_ratio, &percentage_diff, &one)
     }
 
     // The more collateral is covered, the more expensive it is to open a position
     // This scales the same way as the burn transaction fees, so we use the same formula
     #[view(getHedgingPositionOpenTransactionFeesPercentage)]
-    fn get_hedging_position_open_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+    fn get_hedging_position_open_transaction_fees_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> BigUint {
         self.get_burn_transaction_fees_percentage(collateral_id)
     }
 
     // The more collateral is covered, the less expensive it is to exit
     #[view(getHedgingPositionCloseTransactionFeesPercentage)]
-    fn get_hedging_position_close_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+    fn get_hedging_position_close_transaction_fees_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> BigUint {
         self.get_mint_transaction_fees_percentage(collateral_id)
     }
 

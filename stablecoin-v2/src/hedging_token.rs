@@ -54,7 +54,7 @@ pub trait HedgingTokenModule {
             .async_call()
     }
 
-    fn create_and_send_hedging_token(&self, to: &ManagedAddress) -> u64 {
+    fn create_hedging_token(&self) -> u64 {
         let token_id = self.hedging_token_id().get();
         let amount = BigUint::from(NFT_AMOUNT);
         let mut uris = ManagedVec::new();
@@ -69,7 +69,6 @@ pub trait HedgingTokenModule {
             &(),
             &uris,
         );
-        self.send().direct(to, &token_id, nft_nonce, &amount, &[]);
 
         nft_nonce
     }

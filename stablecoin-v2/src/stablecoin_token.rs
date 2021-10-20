@@ -2,6 +2,8 @@ elrond_wasm::imports!();
 
 const STABLE_COIN_NAME: &[u8] = b"StableCoin";
 const STABLE_COIN_TICKER: &[u8] = b"STCOIN";
+const STABLE_COIN_NUM_DECIMALS: usize = 6;
+// pub const STABLE_COIN_PRECISION: u64 = 1_000_000;
 
 #[elrond_wasm::module]
 pub trait StablecoinTokenModule {
@@ -29,7 +31,7 @@ pub trait StablecoinTokenModule {
                 FungibleTokenProperties {
                     can_burn: true,
                     can_mint: true,
-                    num_decimals: 0,
+                    num_decimals: STABLE_COIN_NUM_DECIMALS,
                     can_freeze: true,
                     can_wipe: true,
                     can_pause: true,

@@ -1,5 +1,7 @@
 [workspace]
 members = [
     "liquidity_pool",
-    "lock-rewards"
+    "lock-rewards",
+    "stablecoin-v2",
+    "stablecoin-v2/abi",
 ]

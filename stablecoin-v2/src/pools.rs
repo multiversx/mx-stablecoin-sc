@@ -7,6 +7,7 @@ use price_aggregator_proxy::DOLLAR_TICKER;
 pub struct Pool<M: ManagedTypeApi> {
     pub collateral_amount: BigUint<M>,
     pub stablecoin_amount: BigUint<M>,
+    pub total_hedging_agents_deposit: BigUint<M>,
     pub total_collateral_covered: BigUint<M>,
     pub total_covered_value_in_stablecoin: BigUint<M>,
 }
@@ -16,6 +17,7 @@ impl<M: ManagedTypeApi> Pool<M> {
         Pool {
             collateral_amount: BigUint::zero(api.clone()),
             stablecoin_amount: BigUint::zero(api.clone()),
+            total_hedging_agents_deposit: BigUint::zero(api.clone()),
             total_collateral_covered: BigUint::zero(api.clone()),
             total_covered_value_in_stablecoin: BigUint::zero(api),
         }

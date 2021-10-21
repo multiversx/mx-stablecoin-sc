@@ -81,6 +81,8 @@ pub trait HedgingAgentsModule:
             self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
         let collateral_amount = &payment_amount - &fees_amount_in_collateral;
 
+        pool.total_hedging_agents_deposit += &collateral_amount;
+
         let hedging_position = HedgingPosition {
             collateral_id: payment_token.clone(),
             deposit_amount: collateral_amount,
@@ -137,6 +139,9 @@ pub trait HedgingAgentsModule:
 
             Ok(())
         })?;
+        self.update_pool(&second_transfer.token_identifier, |pool| {
+            pool.total_hedging_agents_deposit += &second_transfer.amount;
+        });
 
         // return the nft
         let caller = self.blockchain().get_caller();
@@ -171,6 +176,9 @@ pub trait HedgingAgentsModule:
 
             Ok(())
         })?;
+        self.update_pool(&payment_token, |pool| {
+            pool.total_hedging_agents_deposit -= amount_to_remove;
+        });
 
         // return the nft
         let caller = self.blockchain().get_caller();
@@ -330,11 +338,13 @@ pub trait HedgingAgentsModule:
         if withdraw_amount > deposit_amount {
             let hedger_reward = withdraw_amount - deposit_amount;
             self.update_pool(collateral_id, |pool| {
+                pool.total_hedging_agents_deposit -= deposit_amount;
                 pool.collateral_amount -= hedger_reward
             });
         } else {
             let hedger_penalty = deposit_amount - withdraw_amount;
             self.update_pool(collateral_id, |pool| {
+                pool.total_hedging_agents_deposit -= deposit_amount;
                 pool.collateral_amount += hedger_penalty
             });
         }

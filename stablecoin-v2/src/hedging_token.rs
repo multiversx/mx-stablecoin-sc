@@ -5,7 +5,7 @@ const HEDGING_TOKEN_TICKER: &[u8] = b"HEDGE";
 pub const NFT_AMOUNT: u32 = 1;
 
 #[elrond_wasm::module]
-pub trait HedgingTokenModule {
+pub trait HedgingTokenModule: crate::token_common::TokenCommonModule {
     #[only_owner]
     #[payable("EGLD")]
     #[endpoint(issueHedgingToken)]
@@ -40,37 +40,17 @@ pub trait HedgingTokenModule {
 
     #[endpoint(setHedgingTokenRoles)]
     fn set_hedging_token_roles(&self) -> AsyncCall {
-        let own_sc_address = self.blockchain().get_sc_address();
         let token_id = self.hedging_token_id().get();
         let roles = [EsdtLocalRole::NftCreate, EsdtLocalRole::NftBurn];
 
-        self.send()
-            .esdt_system_sc_proxy()
-            .set_special_roles(
-                &own_sc_address,
-                &token_id,
-                (&roles[..]).into_iter().cloned(),
-            )
-            .async_call()
+        self.set_local_roles(&token_id, &roles)
     }
 
     fn create_hedging_token(&self) -> u64 {
         let token_id = self.hedging_token_id().get();
         let amount = BigUint::from(NFT_AMOUNT);
-        let mut uris = ManagedVec::new();
-        uris.push(ManagedBuffer::new());
 
-        let nft_nonce = self.send().esdt_nft_create(
-            &token_id,
-            &amount,
-            &ManagedBuffer::new(),
-            &BigUint::zero(),
-            &ManagedBuffer::new(),
-            &(),
-            &uris,
-        );
-
-        nft_nonce
+        self.create_nft(&token_id, &amount)
     }
 
     fn send_hedging_token(&self, to: &ManagedAddress, nft_nonce: u64) {
@@ -82,8 +62,9 @@ pub trait HedgingTokenModule {
 
     fn burn_hedging_token(&self, nft_nonce: u64) {
         let token_id = self.hedging_token_id().get();
-        self.send()
-            .esdt_local_burn(&token_id, nft_nonce, &BigUint::from(NFT_AMOUNT));
+        let amount = BigUint::from(NFT_AMOUNT);
+
+        self.send().esdt_local_burn(&token_id, nft_nonce, &amount);
     }
 
     #[callback]
@@ -98,12 +79,7 @@ pub trait HedgingTokenModule {
                 OptionalResult::Some(self.set_hedging_token_roles())
             }
             ManagedAsyncCallResult::Err(_) => {
-                let initial_caller = self.blockchain().get_owner_address();
-                let egld_returned = self.call_value().egld_value();
-                if egld_returned > 0 {
-                    self.send()
-                        .direct_egld(&initial_caller, &egld_returned, &[]);
-                }
+                self.refund_owner_failed_issue();
 
                 OptionalResult::None
             }

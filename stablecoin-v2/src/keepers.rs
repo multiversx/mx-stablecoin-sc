@@ -12,6 +12,7 @@ pub trait KeepersModule:
     + crate::math::MathModule
     + crate::pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
+    + crate::token_common::TokenCommonModule
 {
     #[endpoint(forceCloseHedgingPosition)]
     fn force_close_hedging_position(&self, nft_nonce: u64) -> SCResult<()> {

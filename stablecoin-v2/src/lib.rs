@@ -3,13 +3,16 @@
 elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
+mod hedging_token;
+mod liquidity_token;
+mod stablecoin_token;
+mod token_common;
+
 mod fees;
 mod hedging_agents;
-mod hedging_token;
 mod keepers;
 mod math;
 mod pools;
-mod stablecoin_token;
 
 // TODO: Check pool collateral values before subtracting, give other tokens instead for leftover amounts
 // TODO: Add events
@@ -20,10 +23,12 @@ pub trait StablecoinV2:
     + hedging_agents::HedgingAgentsModule
     + hedging_token::HedgingTokenModule
     + keepers::KeepersModule
+    + liquidity_token::LiquidityTokenModule
     + math::MathModule
     + pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
     + stablecoin_token::StablecoinTokenModule
+    + token_common::TokenCommonModule
 {
     #[init]
     fn init(

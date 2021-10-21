@@ -6,7 +6,7 @@ const STABLE_COIN_NUM_DECIMALS: usize = 6;
 // pub const STABLE_COIN_PRECISION: u64 = 1_000_000;
 
 #[elrond_wasm::module]
-pub trait StablecoinTokenModule {
+pub trait StablecoinTokenModule: crate::token_common::TokenCommonModule {
     #[only_owner]
     #[payable("EGLD")]
     #[endpoint(issueStablecoinToken)]
@@ -46,18 +46,10 @@ pub trait StablecoinTokenModule {
 
     #[endpoint(setStablecoinRoles)]
     fn set_stablecoin_roles(&self) -> AsyncCall {
-        let own_sc_address = self.blockchain().get_sc_address();
         let token_id = self.stablecoin_token_id().get();
         let roles = [EsdtLocalRole::Mint, EsdtLocalRole::Burn];
 
-        self.send()
-            .esdt_system_sc_proxy()
-            .set_special_roles(
-                &own_sc_address,
-                &token_id,
-                (&roles[..]).into_iter().cloned(),
-            )
-            .async_call()
+        self.set_local_roles(&token_id, &roles)
     }
 
     fn mint_stablecoin(&self, amount: &BigUint) {
@@ -98,12 +90,7 @@ pub trait StablecoinTokenModule {
                 OptionalResult::Some(self.set_stablecoin_roles())
             }
             ManagedAsyncCallResult::Err(_) => {
-                let initial_caller = self.blockchain().get_owner_address();
-                let egld_returned = self.call_value().egld_value();
-                if egld_returned > 0 {
-                    self.send()
-                        .direct_egld(&initial_caller, &egld_returned, &[]);
-                }
+                self.refund_owner_failed_issue();
 
                 OptionalResult::None
             }

@@ -32,6 +32,7 @@ pub trait HedgingAgentsModule:
     + crate::math::MathModule
     + crate::pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
+    + crate::token_common::TokenCommonModule
 {
     #[payable("*")]
     #[endpoint(openHedgingPosition)]

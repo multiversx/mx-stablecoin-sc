@@ -17,7 +17,7 @@ impl<M: ManagedTypeApi> Pool<M> {
             collateral_amount: BigUint::zero(api.clone()),
             stablecoin_amount: BigUint::zero(api.clone()),
             total_collateral_covered: BigUint::zero(api.clone()),
-            total_covered_value_in_stablecoin: BigUint::zero(api.clone()),
+            total_covered_value_in_stablecoin: BigUint::zero(api),
         }
     }
 }
@@ -26,14 +26,6 @@ impl<M: ManagedTypeApi> Pool<M> {
 pub trait PoolsModule:
     crate::math::MathModule + price_aggregator_proxy::PriceAggregatorModule
 {
-    #[view(getCoverageRatio)]
-    fn get_coverage_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let reserves = self.get_pool_reserves(collateral_id);
-        let total_covered = self.get_pool_amount_covered(collateral_id);
-
-        self.calculate_ratio(&total_covered, &reserves)
-    }
-
     fn get_pool(&self, collateral_id: &TokenIdentifier) -> Pool<Self::Api> {
         if self.pool_for_collateral(collateral_id).is_empty() {
             Pool::new(self.raw_vm_api())

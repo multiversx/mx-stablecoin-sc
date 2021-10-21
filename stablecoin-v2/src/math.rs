@@ -3,6 +3,10 @@ elrond_wasm::imports!();
 pub const PERCENTAGE_PRECISION: u64 = 1_000_000_000; // 100%
 pub const ONE: u64 = PERCENTAGE_PRECISION / 100;
 
+// this is the most common case, and it's more efficient to have a constant instead of manually calculating 10^18 everytime
+const DEFAULT_TOKEN_NUM_DECIMALS: u32 = 18;
+const DEFAULT_TOKEN_DECIMALS_VALUE: u64 = 1_000_000_000_000_000_000;
+
 #[elrond_wasm::module]
 pub trait MathModule {
     #[inline(always)]
@@ -20,8 +24,11 @@ pub trait MathModule {
         number * percentage / PERCENTAGE_PRECISION
     }
 
-    #[inline(always)]
     fn create_precision_biguint(&self, nr_decimals: u32) -> BigUint {
+        if nr_decimals == DEFAULT_TOKEN_NUM_DECIMALS {
+            return BigUint::from(DEFAULT_TOKEN_DECIMALS_VALUE);
+        }
+
         let base = BigUint::from(10u64);
         base.pow(nr_decimals)
     }

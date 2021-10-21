@@ -349,18 +349,6 @@ pub trait HedgingAgentsModule:
         self.calculate_ratio(&(collateral_amount + amount_to_cover), collateral_amount)
     }
 
-    #[inline(always)]
-    fn calculate_target_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
-        let target_hedging_ratio = self.target_hedging_ratio().get();
-        self.calculate_percentage_of(&target_hedging_ratio, collateral_amount)
-    }
-
-    #[inline(always)]
-    fn calculate_limit_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
-        let hedging_ratio_limit = self.hedging_ratio_limit().get();
-        self.calculate_percentage_of(&hedging_ratio_limit, collateral_amount)
-    }
-
     fn require_under_max_leverage(
         &self,
         hedging_position: &HedgingPosition<Self::Api>,
@@ -400,14 +388,6 @@ pub trait HedgingAgentsModule:
     #[view(getMaxLeverage)]
     #[storage_mapper("maxLeverage")]
     fn max_leverage(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
-
-    #[view(getTargetHedgingRatio)]
-    #[storage_mapper("targetHedgingRatio")]
-    fn target_hedging_ratio(&self) -> SingleValueMapper<BigUint>;
-
-    #[view(getHedgingRatioLimit)]
-    #[storage_mapper("hedgingRatioLimit")]
-    fn hedging_ratio_limit(&self) -> SingleValueMapper<BigUint>;
 
     #[view(getHedgingMaintenanceRatio)]
     #[storage_mapper("hedgingMaintenanceRatio")]

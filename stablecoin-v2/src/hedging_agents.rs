@@ -19,6 +19,7 @@ pub struct HedgingPosition<M: ManagedTypeApi> {
 }
 
 impl<M: ManagedTypeApi> HedgingPosition<M> {
+    #[inline(always)]
     pub fn is_closed(&self) -> bool {
         self.withdraw_amount_after_force_close.is_some()
     }

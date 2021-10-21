@@ -78,9 +78,14 @@ pub trait PoolsModule:
         self.create_precision_biguint(collateral_num_decimals)
     }
 
+    #[inline(always)]
+    fn is_collateral_whitelisted(&self, collateral_id: &TokenIdentifier) -> bool {
+        self.collateral_whitelisted(collateral_id).get()
+    }
+
     fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {
         require!(
-            self.collateral_whitelist().contains(collateral_id),
+            self.is_collateral_whitelisted(collateral_id),
             "collateral is not whitelisted"
         );
         Ok(())
@@ -88,9 +93,9 @@ pub trait PoolsModule:
 
     // storage
 
-    #[view(getCollateralWhitelist)]
-    #[storage_mapper("collateralWhitelist")]
-    fn collateral_whitelist(&self) -> SetMapper<TokenIdentifier>;
+    #[view(isCollateralWhitelisted)]
+    #[storage_mapper("collateralWhitelisted")]
+    fn collateral_whitelisted(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<bool>;
 
     #[view(getCollateralTicker)]
     #[storage_mapper("collateralTicker")]

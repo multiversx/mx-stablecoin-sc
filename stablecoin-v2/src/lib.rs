@@ -79,7 +79,7 @@ pub trait StablecoinV2:
             .set(&(min_fees_percentage, max_fees_percentage));
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
-        let _ = self.collateral_whitelist().insert(collateral_id);
+        self.collateral_whitelisted(&collateral_id).set(&true);
 
         Ok(())
     }
@@ -92,7 +92,7 @@ pub trait StablecoinV2:
         self.max_leverage(&collateral_id).clear();
         self.min_max_fees_percentage(&collateral_id).clear();
         self.hedging_maintenance_ratio(&collateral_id).clear();
-        let _ = self.collateral_whitelist().remove(&collateral_id);
+        self.collateral_whitelisted(&collateral_id).clear();
     }
 
     // endpoints

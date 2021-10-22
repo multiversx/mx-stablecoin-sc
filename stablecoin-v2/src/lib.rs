@@ -6,15 +6,20 @@ elrond_wasm::derive_imports!();
 mod fees;
 mod hedging_agents;
 mod hedging_token;
+mod keepers;
 mod math;
 mod pools;
 mod stablecoin_token;
+
+// TODO: Check pool collateral values before subtracting, give other tokens instead for leftover amounts
+// TODO: Add events
 
 #[elrond_wasm::contract]
 pub trait StablecoinV2:
     fees::FeesModule
     + hedging_agents::HedgingAgentsModule
     + hedging_token::HedgingTokenModule
+    + keepers::KeepersModule
     + math::MathModule
     + pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
@@ -25,6 +30,8 @@ pub trait StablecoinV2:
         &self,
         price_aggregator_address: ManagedAddress,
         min_hedging_period_seconds: u64,
+        target_hedging_ratio: BigUint,
+        hedging_ratio_limit: BigUint,
     ) -> SCResult<()> {
         require!(
             self.blockchain()
@@ -37,6 +44,8 @@ pub trait StablecoinV2:
 
         self.min_hedging_period_seconds()
             .set(&min_hedging_period_seconds);
+        self.target_hedging_ratio().set(&target_hedging_ratio);
+        self.hedging_ratio_limit().set(&hedging_ratio_limit);
 
         Ok(())
     }
@@ -49,9 +58,11 @@ pub trait StablecoinV2:
         &self,
         collateral_id: TokenIdentifier,
         collateral_ticker: ManagedBuffer,
+        collateral_num_decimals: u32,
         max_leverage: BigUint,
         min_fees_percentage: BigUint,
         max_fees_percentage: BigUint,
+        hedging_maintenance_ratio: BigUint,
     ) -> SCResult<()> {
         require!(
             min_fees_percentage <= max_fees_percentage
@@ -61,10 +72,14 @@ pub trait StablecoinV2:
 
         self.collateral_ticker(&collateral_id)
             .set(&collateral_ticker);
+        self.collateral_num_decimals(&collateral_id)
+            .set(&collateral_num_decimals);
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
             .set(&(min_fees_percentage, max_fees_percentage));
-        let _ = self.collateral_whitelist().insert(collateral_id);
+        self.hedging_maintenance_ratio(&collateral_id)
+            .set(&hedging_maintenance_ratio);
+        self.collateral_whitelisted(&collateral_id).set(&true);
 
         Ok(())
     }
@@ -73,9 +88,11 @@ pub trait StablecoinV2:
     #[endpoint(removeCollateralFromWhitelist)]
     fn remove_collateral_from_whitelist(&self, collateral_id: TokenIdentifier) {
         self.collateral_ticker(&collateral_id).clear();
+        self.collateral_num_decimals(&collateral_id).clear();
         self.max_leverage(&collateral_id).clear();
         self.min_max_fees_percentage(&collateral_id).clear();
-        let _ = self.collateral_whitelist().remove(&collateral_id);
+        self.hedging_maintenance_ratio(&collateral_id).clear();
+        self.collateral_whitelisted(&collateral_id).clear();
     }
 
     // endpoints

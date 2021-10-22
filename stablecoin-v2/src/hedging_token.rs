@@ -2,7 +2,7 @@ elrond_wasm::imports!();
 
 const HEDGING_TOKEN_NAME: &[u8] = b"HedgingToken";
 const HEDGING_TOKEN_TICKER: &[u8] = b"HEDGE";
-const NFT_AMOUNT: u32 = 1;
+pub const NFT_AMOUNT: u32 = 1;
 
 #[elrond_wasm::module]
 pub trait HedgingTokenModule {
@@ -54,7 +54,7 @@ pub trait HedgingTokenModule {
             .async_call()
     }
 
-    fn create_and_send_hedging_token(&self, to: &ManagedAddress) -> u64 {
+    fn create_hedging_token(&self) -> u64 {
         let token_id = self.hedging_token_id().get();
         let amount = BigUint::from(NFT_AMOUNT);
         let mut uris = ManagedVec::new();
@@ -67,12 +67,17 @@ pub trait HedgingTokenModule {
             &BigUint::zero(),
             &ManagedBuffer::new(),
             &(),
-            &uris
+            &uris,
         );
-        self.send()
-            .direct(to, &token_id, nft_nonce, &amount, &[]);
 
         nft_nonce
+    }
+
+    fn send_hedging_token(&self, to: &ManagedAddress, nft_nonce: u64) {
+        let token_id = self.hedging_token_id().get();
+        let amount = BigUint::from(NFT_AMOUNT);
+
+        self.send().direct(to, &token_id, nft_nonce, &amount, &[]);
     }
 
     fn burn_hedging_token(&self, nft_nonce: u64) {

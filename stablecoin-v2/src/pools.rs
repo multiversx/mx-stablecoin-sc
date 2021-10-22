@@ -7,10 +7,9 @@ use price_aggregator_proxy::DOLLAR_TICKER;
 pub struct Pool<M: ManagedTypeApi> {
     pub collateral_amount: BigUint<M>,
     pub stablecoin_amount: BigUint<M>,
+    pub total_hedging_agents_deposit: BigUint<M>,
     pub total_collateral_covered: BigUint<M>,
-    pub hedging_agents_profit: BigUint<M>, // TODO: Update to contain the extra collateral after pool rebalancing,
-    // used to pay out rewards to hedging agents on close position
-    pub hedging_positions: Vec<u64>,
+    pub total_covered_value_in_stablecoin: BigUint<M>,
 }
 
 impl<M: ManagedTypeApi> Pool<M> {
@@ -18,9 +17,9 @@ impl<M: ManagedTypeApi> Pool<M> {
         Pool {
             collateral_amount: BigUint::zero(api.clone()),
             stablecoin_amount: BigUint::zero(api.clone()),
+            total_hedging_agents_deposit: BigUint::zero(api.clone()),
             total_collateral_covered: BigUint::zero(api.clone()),
-            hedging_agents_profit: BigUint::zero(api),
-            hedging_positions: Vec::new(),
+            total_covered_value_in_stablecoin: BigUint::zero(api),
         }
     }
 }
@@ -29,16 +28,6 @@ impl<M: ManagedTypeApi> Pool<M> {
 pub trait PoolsModule:
     crate::math::MathModule + price_aggregator_proxy::PriceAggregatorModule
 {
-    #[view(getCoverageRatio)]
-    fn get_coverage_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let reserves = self.get_pool_reserves(collateral_id);
-        let total_covered = self.get_pool_amount_covered(collateral_id);
-
-        self.calculate_ratio(&total_covered, &reserves)
-    }
-
-    // TODO: Pool rebalancing endpoint
-
     fn get_pool(&self, collateral_id: &TokenIdentifier) -> Pool<Self::Api> {
         if self.pool_for_collateral(collateral_id).is_empty() {
             Pool::new(self.raw_vm_api())
@@ -84,9 +73,19 @@ pub trait PoolsModule:
             .into()
     }
 
+    fn get_collateral_precision(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        let collateral_num_decimals = self.collateral_num_decimals(collateral_id).get();
+        self.create_precision_biguint(collateral_num_decimals)
+    }
+
+    #[inline(always)]
+    fn is_collateral_whitelisted(&self, collateral_id: &TokenIdentifier) -> bool {
+        self.collateral_whitelisted(collateral_id).get()
+    }
+
     fn require_collateral_in_whitelist(&self, collateral_id: &TokenIdentifier) -> SCResult<()> {
         require!(
-            self.collateral_whitelist().contains(&collateral_id),
+            self.is_collateral_whitelisted(collateral_id),
             "collateral is not whitelisted"
         );
         Ok(())
@@ -94,9 +93,9 @@ pub trait PoolsModule:
 
     // storage
 
-    #[view(getCollateralWhitelist)]
-    #[storage_mapper("collateralWhitelist")]
-    fn collateral_whitelist(&self) -> SetMapper<TokenIdentifier>;
+    #[view(isCollateralWhitelisted)]
+    #[storage_mapper("collateralWhitelisted")]
+    fn collateral_whitelisted(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<bool>;
 
     #[view(getCollateralTicker)]
     #[storage_mapper("collateralTicker")]
@@ -105,9 +104,8 @@ pub trait PoolsModule:
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<ManagedBuffer>;
 
-    #[view(getMaxLeverage)]
-    #[storage_mapper("maxLeverage")]
-    fn max_leverage(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
+    #[storage_mapper("collateralNumDecimals")]
+    fn collateral_num_decimals(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<u32>;
 
     #[view(getPoolForCollateral)]
     #[storage_mapper("poolForCollateral")]

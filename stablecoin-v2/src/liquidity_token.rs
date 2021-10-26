@@ -3,6 +3,8 @@ elrond_wasm::imports!();
 const LIQUIDITY_TOKEN_NAME: &[u8] = b"LiquidityToken";
 const LIQUIDITY_TOKEN_TICKER: &[u8] = b"LIQ";
 
+// TODO: Use MetaESDT instead of semi-fungible token (for decimals)
+
 #[elrond_wasm::module]
 pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
     #[only_owner]
@@ -11,7 +13,7 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
     fn issue_liquidity_token(&self, #[payment] issue_cost: BigUint) -> SCResult<AsyncCall> {
         require!(
             self.liquidity_token_id().is_empty(),
-            "Hedging token already issued"
+            "Liquidity token already issued"
         );
 
         let token_display_name = ManagedBuffer::from(LIQUIDITY_TOKEN_NAME);
@@ -60,7 +62,10 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
             return existing_sft_nonce;
         }
 
-        let new_sft_nonce = self.create_nft(&token_id, amount);
+        // must keep at least 1 in SC's balance for NFTAddQuantity
+        // ESDT metadata is deleted if the balance is 0
+        let amount_plus_leftover = amount + 1u32;
+        let new_sft_nonce = self.create_nft(&token_id, &amount_plus_leftover);
         self.liq_sft_nonce_for_collateral(collateral_id)
             .set(&new_sft_nonce);
         self.collateral_for_liq_sft_nonce(new_sft_nonce)
@@ -73,6 +78,16 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
         let token_id = self.liquidity_token_id().get();
 
         self.send().direct(to, &token_id, sft_nonce, amount, &[]);
+    }
+
+    fn create_and_send_liq_tokens(
+        &self,
+        to: &ManagedAddress,
+        collateral_id: &TokenIdentifier,
+        amount: &BigUint,
+    ) {
+        let sft_nonce = self.create_or_mint_liq_tokens(collateral_id, amount);
+        self.send_liq_tokens(to, sft_nonce, amount);
     }
 
     fn burn_liq_tokens(&self, sft_nonce: u64, amount: &BigUint) {

@@ -3,18 +3,22 @@
 elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
+// tokens
 mod hedging_token;
 mod liquidity_token;
 mod stablecoin_token;
 mod token_common;
 
-mod fees;
+// actors
 mod hedging_agents;
 mod keepers;
+mod liquidity_providers;
+
+// misc
+mod fees;
 mod math;
 mod pools;
 
-// TODO: Check pool collateral values before subtracting, give other tokens instead for leftover amounts
 // TODO: Add events
 
 #[elrond_wasm::contract]
@@ -23,6 +27,7 @@ pub trait StablecoinV2:
     + hedging_agents::HedgingAgentsModule
     + hedging_token::HedgingTokenModule
     + keepers::KeepersModule
+    + liquidity_providers::LiquidityProvidersModule
     + liquidity_token::LiquidityTokenModule
     + math::MathModule
     + pools::PoolsModule
@@ -85,6 +90,10 @@ pub trait StablecoinV2:
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
         self.collateral_whitelisted(&collateral_id).set(&true);
+
+        // preserve the pool info if it was added, removed, and then added again
+        self.pool_for_collateral(&collateral_id)
+            .set_if_empty(&pools::Pool::new(self.raw_vm_api()));
 
         Ok(())
     }

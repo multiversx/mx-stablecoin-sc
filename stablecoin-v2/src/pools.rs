@@ -48,16 +48,13 @@ pub trait PoolsModule:
         self.get_pool(collateral_id).collateral_reserves
     }
 
+    #[inline(always)]
     fn update_pool<R, F: FnOnce(&mut Pool<Self::Api>) -> R>(
         &self,
         collateral_id: &TokenIdentifier,
         f: F,
     ) -> R {
-        let mut pool = self.get_pool(collateral_id);
-        let result = f(&mut pool);
-        self.pool_for_collateral(collateral_id).set(&pool);
-
-        result
+        self.pool_for_collateral(collateral_id).update(f)
     }
 
     #[inline(always)]
@@ -73,40 +70,6 @@ pub trait PoolsModule:
         self.get_price_for_pair(collateral_ticker, ManagedBuffer::from(DOLLAR_TICKER))
             .ok_or("Could not get collateral value in dollars")
             .into()
-    }
-
-    // TODO: How to calculate this? Maybe based on accumulated fees?
-    fn get_liq_token_value_in_collateral(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        // mock simply returns 1:1 ratio
-        self.get_collateral_precision(collateral_id)
-    }
-
-    fn collateral_to_liq_tokens(
-        &self,
-        collateral_id: &TokenIdentifier,
-        collateral_amount: &BigUint,
-    ) -> BigUint {
-        let liq_token_value_in_collateral = self.get_liq_token_value_in_collateral(collateral_id);
-        let collateral_precision = self.get_collateral_precision(collateral_id);
-        self.divide(
-            collateral_amount,
-            &liq_token_value_in_collateral,
-            &collateral_precision,
-        )
-    }
-
-    fn liq_tokens_to_collateral(
-        &self,
-        collateral_id: &TokenIdentifier,
-        liq_token_amount: &BigUint,
-    ) -> BigUint {
-        let liq_token_value_in_collateral = self.get_liq_token_value_in_collateral(collateral_id);
-        let collateral_precision = self.get_collateral_precision(collateral_id);
-        self.multiply(
-            liq_token_amount,
-            &liq_token_value_in_collateral,
-            &collateral_precision,
-        )
     }
 
     fn get_collateral_precision(&self, collateral_id: &TokenIdentifier) -> BigUint {

@@ -38,6 +38,7 @@ pub trait HedgingTokenModule: crate::token_common::TokenCommonModule {
             .with_callback(self.callbacks().hedging_token_issue_callback()))
     }
 
+    #[only_owner]
     #[endpoint(setHedgingTokenRoles)]
     fn set_hedging_token_roles(&self) -> AsyncCall {
         let token_id = self.hedging_token_id().get();

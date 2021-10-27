@@ -44,6 +44,7 @@ pub trait StablecoinTokenModule: crate::token_common::TokenCommonModule {
             .with_callback(self.callbacks().stablecoin_issue_callback()))
     }
 
+    #[only_owner]
     #[endpoint(setStablecoinRoles)]
     fn set_stablecoin_roles(&self) -> AsyncCall {
         let token_id = self.stablecoin_token_id().get();

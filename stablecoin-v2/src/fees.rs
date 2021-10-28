@@ -2,6 +2,9 @@ elrond_wasm::imports!();
 
 use crate::math::ONE;
 
+// TODO: calculate fees only when rebalancing pool by keepers
+// store the value in storage instead of calculating everytime
+
 #[elrond_wasm::module]
 pub trait FeesModule:
     crate::math::MathModule + crate::pools::PoolsModule + price_aggregator_proxy::PriceAggregatorModule
@@ -91,6 +94,10 @@ pub trait FeesModule:
         self.calculate_percentage_of(&hedging_ratio_limit, collateral_amount)
     }
 
+    fn split_fees(&self) {
+        // TODO
+    }
+
     // storage
 
     #[storage_mapper("minMaxFeesPercentage")]
@@ -99,8 +106,6 @@ pub trait FeesModule:
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<(BigUint, BigUint)>;
 
-    // TODO: Don't accumulate here, but rather split the fees when the transaction is processed
-    // These fees will go to the liquidity providers
     #[storage_mapper("accumulatedTxFees")]
     fn accumulated_tx_fees(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 

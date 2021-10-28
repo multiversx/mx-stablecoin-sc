@@ -15,6 +15,11 @@ pub trait MathModule {
     }
 
     #[inline(always)]
+    fn divide(&self, first: &BigUint, second: &BigUint, result_precision: &BigUint) -> BigUint {
+        &(first * result_precision) / second
+    }
+
+    #[inline(always)]
     fn calculate_ratio(&self, first: &BigUint, second: &BigUint) -> BigUint {
         &(first * ONE) / second
     }

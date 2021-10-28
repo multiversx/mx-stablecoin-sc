@@ -2,17 +2,66 @@ elrond_wasm::imports!();
 
 use crate::{hedging_agents::HedgingPosition, math::ONE};
 
-// TODO: Pay some part of the hedging position open fees to keepers as rewards
-
 #[elrond_wasm::module]
 pub trait KeepersModule:
     crate::fees::FeesModule
     + crate::hedging_agents::HedgingAgentsModule
     + crate::hedging_token::HedgingTokenModule
+    + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
     + crate::pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
+    + crate::token_common::TokenCommonModule
 {
+    #[endpoint(rebalancePool)]
+    fn rebalance_pool(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
+
+        let collateral_value_in_dollars = self.get_collateral_value_in_dollars(&collateral_id)?;
+        let collateral_precision = self.get_collateral_precision(&collateral_id);
+
+        self.update_pool(&collateral_id, |pool| {
+            let pool_value_in_dollars = self.multiply(
+                &pool.collateral_amount,
+                &collateral_value_in_dollars,
+                &collateral_precision,
+            );
+
+            // collateral value increased, so we move the extra to reserves
+            if pool_value_in_dollars > pool.stablecoin_amount {
+                let extra_collateral_in_dollars = &pool_value_in_dollars - &pool.stablecoin_amount;
+                let extra_collateral_amount = self.divide(
+                    &extra_collateral_in_dollars,
+                    &collateral_value_in_dollars,
+                    &collateral_precision,
+                );
+
+                pool.collateral_reserves += extra_collateral_amount;
+            }
+            // collateral value decreased, so we take collateral from the reserves to rebalance the pool
+            else {
+                let missing_collateral_in_dollars =
+                    &pool.stablecoin_amount - &pool_value_in_dollars;
+                let missing_collateral_amount = self.divide(
+                    &missing_collateral_in_dollars,
+                    &collateral_value_in_dollars,
+                    &collateral_precision,
+                );
+
+                require!(
+                    missing_collateral_amount <= pool.collateral_reserves,
+                    "Not enough reserves to rebalance pool"
+                );
+
+                pool.collateral_reserves -= missing_collateral_amount;
+            }
+
+            pool.stablecoin_amount = pool_value_in_dollars;
+
+            Ok(())
+        })
+    }
+
     #[endpoint(forceCloseHedgingPosition)]
     fn force_close_hedging_position(&self, nft_nonce: u64) -> SCResult<()> {
         self.require_not_liquidated(nft_nonce)?;
@@ -29,12 +78,6 @@ pub trait KeepersModule:
         self.close_position(&hedging_position)?;
 
         let withdraw_amount = self.get_withdraw_amount_and_update_fees(&hedging_position, None)?;
-        self.update_pool_after_closed_position(
-            &hedging_position.collateral_id,
-            &hedging_position.deposit_amount,
-            &withdraw_amount,
-        );
-
         hedging_position.withdraw_amount_after_force_close = Some(withdraw_amount);
         self.hedging_position(nft_nonce).set(&hedging_position);
 
@@ -58,12 +101,6 @@ pub trait KeepersModule:
         );
 
         self.close_position(&hedging_position)?;
-        self.update_pool_after_closed_position(
-            &hedging_position.collateral_id,
-            &hedging_position.deposit_amount,
-            &BigUint::zero(),
-        );
-
         self.hedging_position(nft_nonce).clear();
 
         Ok(())

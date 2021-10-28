@@ -3,9 +3,14 @@ elrond_wasm::derive_imports!();
 
 use crate::math::ONE;
 
-pub struct WithdrawAmountFeeSplit<M: ManagedTypeApi> {
+pub struct HedgerWithdrawAmountFeeSplit<M: ManagedTypeApi> {
     pub withdraw_amount: BigUint<M>,
     pub fees_amount: BigUint<M>,
+}
+
+pub struct HedgerRewardAmountsTokensPair<M: ManagedTypeApi> {
+    pub collateral_amount: BigUint<M>,
+    pub liq_tokens_amount: BigUint<M>,
 }
 
 #[derive(TypeAbi, TopEncode, TopDecode)]
@@ -29,9 +34,11 @@ impl<M: ManagedTypeApi> HedgingPosition<M> {
 pub trait HedgingAgentsModule:
     crate::fees::FeesModule
     + crate::hedging_token::HedgingTokenModule
+    + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
     + crate::pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
+    + crate::token_common::TokenCommonModule
 {
     #[payable("*")]
     #[endpoint(openHedgingPosition)]
@@ -81,7 +88,7 @@ pub trait HedgingAgentsModule:
             self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
         let collateral_amount = &payment_amount - &fees_amount_in_collateral;
 
-        pool.total_hedging_agents_deposit += &collateral_amount;
+        pool.collateral_reserves += &collateral_amount;
 
         let hedging_position = HedgingPosition {
             collateral_id: payment_token.clone(),
@@ -140,7 +147,7 @@ pub trait HedgingAgentsModule:
             Ok(())
         })?;
         self.update_pool(&second_transfer.token_identifier, |pool| {
-            pool.total_hedging_agents_deposit += &second_transfer.amount;
+            pool.collateral_reserves += &second_transfer.amount;
         });
 
         // return the nft
@@ -164,7 +171,7 @@ pub trait HedgingAgentsModule:
             "Token should be the hedging NFT"
         );
 
-        self.hedging_position(payment_nonce).update(|hedging_pos| {
+        let collateral_id = self.hedging_position(payment_nonce).update(|hedging_pos| {
             require!(
                 amount_to_remove < hedging_pos.deposit_amount,
                 "Remove amount higher than total deposit"
@@ -174,14 +181,24 @@ pub trait HedgingAgentsModule:
             hedging_pos.deposit_amount -= &amount_to_remove;
             self.require_under_max_leverage(hedging_pos)?;
 
-            Ok(())
+            Ok(hedging_pos.collateral_id.clone())
         })?;
         self.update_pool(&payment_token, |pool| {
-            pool.total_hedging_agents_deposit -= amount_to_remove;
-        });
+            require!(
+                amount_to_remove <= pool.collateral_reserves,
+                "Not enough reserves in pool"
+            );
+
+            pool.collateral_reserves -= &amount_to_remove;
+
+            Ok(())
+        })?;
+
+        let caller = self.blockchain().get_caller();
+        self.send()
+            .direct(&caller, &collateral_id, 0, &amount_to_remove, &[]);
 
         // return the nft
-        let caller = self.blockchain().get_caller();
         self.send_hedging_token(&caller, payment_nonce);
 
         Ok(())
@@ -203,24 +220,28 @@ pub trait HedgingAgentsModule:
         self.require_not_liquidated(payment_nonce)?;
 
         let hedging_position = self.hedging_position(payment_nonce).get();
-        let withdraw_amount = match hedging_position.withdraw_amount_after_force_close {
-            Some(amt) => amt,
+        let withdraw_split = match hedging_position.withdraw_amount_after_force_close {
+            Some(withdraw_amount) => self
+                .calculate_withdraw_amounts_split(&hedging_position.collateral_id, withdraw_amount),
             None => {
                 self.close_position(&hedging_position)?;
 
-                let amt = self.get_withdraw_amount_and_update_fees(
+                let withdraw_amount = self.get_withdraw_amount_and_update_fees(
                     &hedging_position,
                     Some(min_oracle_value),
                 )?;
-                self.update_pool_after_closed_position(
+                let split = self.calculate_withdraw_amounts_split(
                     &hedging_position.collateral_id,
-                    &hedging_position.deposit_amount,
-                    &amt,
+                    withdraw_amount.clone(),
                 );
 
-                amt
+                split
             }
         };
+
+        self.update_pool(&hedging_position.collateral_id, |pool| {
+            pool.collateral_reserves -= &withdraw_split.collateral_amount;
+        });
 
         self.hedging_position(payment_nonce).clear();
         self.burn_hedging_token(payment_nonce);
@@ -230,9 +251,18 @@ pub trait HedgingAgentsModule:
             &caller,
             &hedging_position.collateral_id,
             0,
-            &withdraw_amount,
+            &withdraw_split.collateral_amount,
             &[],
         );
+
+        let liq_tokens_amount = withdraw_split.liq_tokens_amount;
+        if liq_tokens_amount > 0 {
+            self.create_and_send_liq_tokens(
+                &caller,
+                &hedging_position.collateral_id,
+                &liq_tokens_amount,
+            );
+        }
 
         Ok(())
     }
@@ -285,7 +315,7 @@ pub trait HedgingAgentsModule:
         &self,
         hedging_position: &HedgingPosition<Self::Api>,
         opt_min_oracle_value: Option<BigUint>,
-    ) -> SCResult<WithdrawAmountFeeSplit<Self::Api>> {
+    ) -> SCResult<HedgerWithdrawAmountFeeSplit<Self::Api>> {
         let collateral_value_in_dollars =
             self.get_collateral_value_in_dollars(&hedging_position.collateral_id)?;
         if let Some(min_oracle_value) = opt_min_oracle_value {
@@ -323,30 +353,32 @@ pub trait HedgingAgentsModule:
             self.calculate_percentage_of(&transaction_fees_percentage, &base_withdraw_amount);
         let withdraw_amount = &base_withdraw_amount - &fees_amount;
 
-        Ok(WithdrawAmountFeeSplit {
+        Ok(HedgerWithdrawAmountFeeSplit {
             withdraw_amount,
             fees_amount,
         })
     }
 
-    fn update_pool_after_closed_position(
+    fn calculate_withdraw_amounts_split(
         &self,
         collateral_id: &TokenIdentifier,
-        deposit_amount: &BigUint,
-        withdraw_amount: &BigUint,
-    ) {
-        if withdraw_amount > deposit_amount {
-            let hedger_reward = withdraw_amount - deposit_amount;
-            self.update_pool(collateral_id, |pool| {
-                pool.total_hedging_agents_deposit -= deposit_amount;
-                pool.collateral_amount -= hedger_reward
-            });
+        full_withdraw_amount: BigUint,
+    ) -> HedgerRewardAmountsTokensPair<Self::Api> {
+        let reserves = self.get_pool_reserves(collateral_id);
+        if full_withdraw_amount <= reserves {
+            HedgerRewardAmountsTokensPair {
+                collateral_amount: full_withdraw_amount,
+                liq_tokens_amount: BigUint::zero(),
+            }
         } else {
-            let hedger_penalty = deposit_amount - withdraw_amount;
-            self.update_pool(collateral_id, |pool| {
-                pool.total_hedging_agents_deposit -= deposit_amount;
-                pool.collateral_amount += hedger_penalty
-            });
+            let collateral_amount_over_reserves = &full_withdraw_amount - &reserves;
+            let amount_in_liq_tokens =
+                self.collateral_to_liq_tokens(collateral_id, &collateral_amount_over_reserves);
+
+            HedgerRewardAmountsTokensPair {
+                collateral_amount: reserves,
+                liq_tokens_amount: amount_in_liq_tokens,
+            }
         }
     }
 

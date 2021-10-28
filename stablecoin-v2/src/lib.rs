@@ -73,11 +73,19 @@ pub trait StablecoinV2:
         min_fees_percentage: BigUint,
         max_fees_percentage: BigUint,
         hedging_maintenance_ratio: BigUint,
+        liq_provider_fee_reward_percentage: BigUint,
+        min_slippage_percentage: BigUint,
+        max_slippage_percentage: BigUint,
     ) -> SCResult<()> {
         require!(
             min_fees_percentage <= max_fees_percentage
                 && max_fees_percentage < math::PERCENTAGE_PRECISION,
             "Invalid fees percentages"
+        );
+        require!(
+            min_slippage_percentage <= max_slippage_percentage
+                && max_slippage_percentage < math::PERCENTAGE_PRECISION,
+            "Invalid slippage percentages"
         );
 
         self.collateral_ticker(&collateral_id)
@@ -89,6 +97,10 @@ pub trait StablecoinV2:
             .set(&(min_fees_percentage, max_fees_percentage));
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
+        self.liq_provider_fee_reward_percentage(&collateral_id)
+            .set(&liq_provider_fee_reward_percentage);
+        self.min_max_slippage_percentage(&collateral_id)
+            .set(&(min_slippage_percentage, max_slippage_percentage));
         self.collateral_whitelisted(&collateral_id).set(&true);
 
         // preserve the pool info if it was added, removed, and then added again
@@ -106,6 +118,9 @@ pub trait StablecoinV2:
         self.max_leverage(&collateral_id).clear();
         self.min_max_fees_percentage(&collateral_id).clear();
         self.hedging_maintenance_ratio(&collateral_id).clear();
+        self.liq_provider_fee_reward_percentage(&collateral_id)
+            .clear();
+        self.min_max_slippage_percentage(&collateral_id).clear();
         self.collateral_whitelisted(&collateral_id).clear();
     }
 

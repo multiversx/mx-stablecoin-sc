@@ -1,56 +1,38 @@
 elrond_wasm::imports!();
+elrond_wasm::derive_imports!();
 
 use crate::math::ONE;
 
-// TODO: calculate fees only when rebalancing pool by keepers
-// store the value in storage instead of calculating everytime
+#[derive(TopEncode, TopDecode)]
+pub struct CurrentFeeConfiguration<M: ManagedTypeApi> {
+    pub hedging_ratio: BigUint<M>,
+    pub mint_fee_percentage: BigUint<M>,
+    pub burn_fee_percentage: BigUint<M>,
+}
 
 #[elrond_wasm::module]
 pub trait FeesModule:
     crate::math::MathModule + crate::pools::PoolsModule + price_aggregator_proxy::PriceAggregatorModule
 {
-    // mint fees decrease as coverage ratio increases
-    #[view(getMintTransactionFeesPercentage)]
-    fn get_mint_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let target_hedging_ratio = self.target_hedging_ratio().get();
-        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
-        let (min_fees_percentage, max_fees_percentage) =
-            self.min_max_fees_percentage(collateral_id).get();
-        let one = BigUint::from(ONE);
-
-        if current_hedging_ratio == 0 {
-            return max_fees_percentage;
-        }
-        if current_hedging_ratio >= target_hedging_ratio {
-            return min_fees_percentage;
-        }
-
-        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
-
-        // max - (max - min) * hedging_ratio
-        max_fees_percentage - self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+    #[view(getCurrentHedgingRatio)]
+    fn get_current_hedging_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        self.current_fee_configuration(collateral_id)
+            .get()
+            .hedging_ratio
     }
 
-    // burn fees decrease as coverage ratio decreases
+    #[view(getMintTransactionFeesPercentage)]
+    fn get_mint_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        self.current_fee_configuration(collateral_id)
+            .get()
+            .mint_fee_percentage
+    }
+
     #[view(getBurnTransactionFeesPercentage)]
     fn get_burn_transaction_fees_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let target_hedging_ratio = self.target_hedging_ratio().get();
-        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
-        let (min_fees_percentage, max_fees_percentage) =
-            self.min_max_fees_percentage(collateral_id).get();
-        let one = BigUint::from(ONE);
-
-        if current_hedging_ratio == 0 {
-            return min_fees_percentage;
-        }
-        if current_hedging_ratio >= target_hedging_ratio {
-            return max_fees_percentage;
-        }
-
-        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
-
-        // min + (max - min) * hedging_ratio
-        min_fees_percentage + self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+        self.current_fee_configuration(collateral_id)
+            .get()
+            .burn_fee_percentage
     }
 
     // The more collateral is covered, the more expensive it is to open a position
@@ -72,7 +54,54 @@ pub trait FeesModule:
         self.get_mint_transaction_fees_percentage(collateral_id)
     }
 
-    #[view(getCurrentHedgingRatio)]
+    // mint fees decrease as coverage ratio increases
+    fn calculate_mint_transaction_fees_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> BigUint {
+        let target_hedging_ratio = self.target_hedging_ratio().get();
+        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
+        let (min_fees_percentage, max_fees_percentage) =
+            self.min_max_fees_percentage(collateral_id).get();
+        let one = BigUint::from(ONE);
+
+        if current_hedging_ratio == 0 {
+            return max_fees_percentage;
+        }
+        if current_hedging_ratio >= target_hedging_ratio {
+            return min_fees_percentage;
+        }
+
+        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
+
+        // max - (max - min) * hedging_ratio
+        max_fees_percentage - self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+    }
+
+    // burn fees decrease as coverage ratio decreases
+    fn calculate_burn_transaction_fees_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> BigUint {
+        let target_hedging_ratio = self.target_hedging_ratio().get();
+        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
+        let (min_fees_percentage, max_fees_percentage) =
+            self.min_max_fees_percentage(collateral_id).get();
+        let one = BigUint::from(ONE);
+
+        if current_hedging_ratio == 0 {
+            return min_fees_percentage;
+        }
+        if current_hedging_ratio >= target_hedging_ratio {
+            return max_fees_percentage;
+        }
+
+        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
+
+        // min + (max - min) * hedging_ratio
+        min_fees_percentage + self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+    }
+
     fn calculate_current_hedging_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
         let pool = self.get_pool(collateral_id);
         let target_hedge_amount = self.calculate_target_hedge_amount(&pool.collateral_amount);
@@ -82,20 +111,14 @@ pub trait FeesModule:
         )
     }
 
-    #[view(getTargetHedgeAmount)]
     fn calculate_target_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
         let target_hedging_ratio = self.target_hedging_ratio().get();
         self.calculate_percentage_of(&target_hedging_ratio, collateral_amount)
     }
 
-    #[view(getLimitHedgeAmount)]
     fn calculate_limit_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
         let hedging_ratio_limit = self.hedging_ratio_limit().get();
         self.calculate_percentage_of(&hedging_ratio_limit, collateral_amount)
-    }
-
-    fn split_fees(&self) {
-        // TODO
     }
 
     // storage
@@ -105,6 +128,12 @@ pub trait FeesModule:
         &self,
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<(BigUint, BigUint)>;
+
+    #[storage_mapper("currentFeeConfiguration")]
+    fn current_fee_configuration(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<CurrentFeeConfiguration<Self::Api>>;
 
     #[storage_mapper("accumulatedTxFees")]
     fn accumulated_tx_fees(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;

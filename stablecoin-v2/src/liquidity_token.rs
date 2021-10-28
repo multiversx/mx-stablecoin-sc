@@ -3,10 +3,10 @@ elrond_wasm::imports!();
 const LIQUIDITY_TOKEN_NAME: &[u8] = b"LiquidityToken";
 const LIQUIDITY_TOKEN_TICKER: &[u8] = b"LIQ";
 
-// TODO: Use MetaESDT instead of semi-fungible token (for decimals)
-
 #[elrond_wasm::module]
-pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
+pub trait LiquidityTokenModule:
+    crate::math::MathModule + crate::token_common::TokenCommonModule
+{
     #[only_owner]
     #[payable("EGLD")]
     #[endpoint(issueLiquidityToken)]
@@ -39,6 +39,7 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
             .with_callback(self.callbacks().liquidity_token_issue_callback()))
     }
 
+    #[only_owner]
     #[endpoint(setLiquidityTokenRoles)]
     fn set_liquidity_token_roles(&self) -> AsyncCall {
         let token_id = self.liquidity_token_id().get();
@@ -75,8 +76,10 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
     }
 
     fn send_liq_tokens(&self, to: &ManagedAddress, sft_nonce: u64, amount: &BigUint) {
-        let token_id = self.liquidity_token_id().get();
+        self.liq_token_amount_in_circulation(sft_nonce)
+            .update(|amount_in_circulation| *amount_in_circulation += amount);
 
+        let token_id = self.liquidity_token_id().get();
         self.send().direct(to, &token_id, sft_nonce, amount, &[]);
     }
 
@@ -91,9 +94,53 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
     }
 
     fn burn_liq_tokens(&self, sft_nonce: u64, amount: &BigUint) {
-        let token_id = self.liquidity_token_id().get();
+        self.liq_token_amount_in_circulation(sft_nonce)
+            .update(|amount_in_circulation| *amount_in_circulation -= amount);
 
+        let token_id = self.liquidity_token_id().get();
         self.send().esdt_local_burn(&token_id, sft_nonce, amount);
+    }
+
+    fn get_liq_token_value_in_collateral(
+        &self,
+        collateral_id: &TokenIdentifier,
+        collateral_precision: &BigUint,
+    ) -> BigUint {
+        let sft_nonce = self.liq_sft_nonce_for_collateral(collateral_id).get();
+        let collateral_amount = self.collateral_amount_for_liq_token(sft_nonce).get();
+        let liq_tokens_amount = self.liq_token_amount_in_circulation(sft_nonce).get();
+
+        self.divide(&liq_tokens_amount, &collateral_amount, collateral_precision)
+    }
+
+    fn collateral_to_liq_tokens(
+        &self,
+        collateral_id: &TokenIdentifier,
+        collateral_amount: &BigUint,
+        collateral_precision: &BigUint,
+    ) -> BigUint {
+        let liq_token_value_in_collateral =
+            self.get_liq_token_value_in_collateral(collateral_id, collateral_precision);
+        self.divide(
+            collateral_amount,
+            &liq_token_value_in_collateral,
+            collateral_precision,
+        )
+    }
+
+    fn liq_tokens_to_collateral(
+        &self,
+        collateral_id: &TokenIdentifier,
+        liq_token_amount: &BigUint,
+        collateral_precision: &BigUint,
+    ) -> BigUint {
+        let liq_token_value_in_collateral =
+            self.get_liq_token_value_in_collateral(collateral_id, collateral_precision);
+        self.multiply(
+            liq_token_amount,
+            &liq_token_value_in_collateral,
+            collateral_precision,
+        )
     }
 
     #[callback]
@@ -131,4 +178,10 @@ pub trait LiquidityTokenModule: crate::token_common::TokenCommonModule {
     #[view(getCollateralForLiquidityTokenSftNonce)]
     #[storage_mapper("collateralForLiqSftNonce")]
     fn collateral_for_liq_sft_nonce(&self, sft_nonce: u64) -> SingleValueMapper<TokenIdentifier>;
+
+    #[storage_mapper("liqTokenAmountInCirculation")]
+    fn liq_token_amount_in_circulation(&self, sft_nonce: u64) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("collateralAmountForLiqToken")]
+    fn collateral_amount_for_liq_token(&self, sft_nonce: u64) -> SingleValueMapper<BigUint>;
 }

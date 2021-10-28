@@ -372,8 +372,9 @@ pub trait HedgingAgentsModule:
             }
         } else {
             let collateral_amount_over_reserves = &full_withdraw_amount - &reserves;
+            let collateral_precision = self.get_collateral_precision(collateral_id);
             let amount_in_liq_tokens =
-                self.collateral_to_liq_tokens(collateral_id, &collateral_amount_over_reserves);
+                self.collateral_to_liq_tokens(collateral_id, &collateral_amount_over_reserves, &collateral_precision);
 
             HedgerRewardAmountsTokensPair {
                 collateral_amount: reserves,

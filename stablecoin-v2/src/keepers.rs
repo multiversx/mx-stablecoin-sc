@@ -1,12 +1,13 @@
 elrond_wasm::imports!();
 
-use crate::{hedging_agents::HedgingPosition, math::ONE};
+use crate::{fees::CurrentFeeConfiguration, hedging_agents::HedgingPosition, math::ONE};
 
 #[elrond_wasm::module]
 pub trait KeepersModule:
     crate::fees::FeesModule
     + crate::hedging_agents::HedgingAgentsModule
     + crate::hedging_token::HedgingTokenModule
+    + crate::liquidity_providers::LiquidityProvidersModule
     + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
     + crate::pools::PoolsModule
@@ -60,6 +61,43 @@ pub trait KeepersModule:
 
             Ok(())
         })
+    }
+
+    #[endpoint(updateFeesPercentage)]
+    fn update_fees_percentage(&self, collateral_id: TokenIdentifier) {
+        let hedging_ratio = self.calculate_current_hedging_ratio(&collateral_id);
+        let mint_fee_percentage = self.calculate_mint_transaction_fees_percentage(&collateral_id);
+        let burn_fee_percentage = self.calculate_burn_transaction_fees_percentage(&collateral_id);
+
+        self.current_fee_configuration(&collateral_id)
+            .set(&CurrentFeeConfiguration {
+                hedging_ratio,
+                mint_fee_percentage,
+                burn_fee_percentage,
+            });
+    }
+
+    #[endpoint(splitFees)]
+    fn split_fees(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        let liq_provider_fee_reward_percentage = self
+            .liq_provider_fee_reward_percentage(&collateral_id)
+            .get();
+
+        let accumulated_fees = self.accumulated_tx_fees(&collateral_id).get();
+        let liq_provider_reward =
+            self.calculate_percentage_of(&liq_provider_fee_reward_percentage, &accumulated_fees);
+        let leftover = &accumulated_fees - &liq_provider_reward;
+
+        let sft_nonce = self.liq_sft_nonce_for_collateral(&collateral_id).get();
+        self.collateral_amount_for_liq_token(sft_nonce)
+            .update(|amt| *amt += liq_provider_reward);
+        self.update_pool(&collateral_id, |pool| {
+            pool.collateral_reserves += leftover;
+        });
+
+        self.accumulated_tx_fees(&collateral_id).clear();
+
+        Ok(())
     }
 
     #[endpoint(forceCloseHedgingPosition)]

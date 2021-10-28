@@ -106,6 +106,20 @@ pub trait PoolsModule:
     #[storage_mapper("collateralNumDecimals")]
     fn collateral_num_decimals(&self, collateral_id: &TokenIdentifier) -> SingleValueMapper<u32>;
 
+    #[view(getReservesLendPercentage)]
+    #[storage_mapper("reservesLendPercentage")]
+    fn reserves_lend_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<BigUint>;
+
+    #[view(getMinLeftoverReservesAfterLend)]
+    #[storage_mapper("minLeftoverReservesAfterLend")]
+    fn min_leftover_reserves_after_lend(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<BigUint>;
+
     #[view(getPoolForCollateral)]
     #[storage_mapper("poolForCollateral")]
     fn pool_for_collateral(

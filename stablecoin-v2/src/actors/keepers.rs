@@ -7,6 +7,7 @@ pub trait KeepersModule:
     crate::fees::FeesModule
     + crate::hedging_agents::HedgingAgentsModule
     + crate::hedging_token::HedgingTokenModule
+    + crate::lending::LendingModule
     + crate::liquidity_providers::LiquidityProvidersModule
     + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
@@ -78,7 +79,7 @@ pub trait KeepersModule:
     }
 
     #[endpoint(splitFees)]
-    fn split_fees(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+    fn split_fees(&self, collateral_id: TokenIdentifier) {
         let liq_provider_fee_reward_percentage = self
             .liq_provider_fee_reward_percentage(&collateral_id)
             .get();
@@ -96,8 +97,37 @@ pub trait KeepersModule:
         });
 
         self.accumulated_tx_fees(&collateral_id).clear();
+    }
 
-        Ok(())
+    #[endpoint(lendReserves)]
+    fn lend_reserves(&self, collateral_id: TokenIdentifier) -> SCResult<AsyncCall> {
+        self.lend(collateral_id)
+    }
+
+    #[endpoint(withdrawLendedReserves)]
+    fn withdraw_lended_reserves(&self, collateral_id: TokenIdentifier) -> SCResult<AsyncCall> {
+        self.withdraw(collateral_id)
+    }
+
+    #[endpoint(splitLendRewards)]
+    fn split_lend_rewards(&self, collateral_id: TokenIdentifier) {
+        let liq_provider_lend_reward_percentage = self
+            .liq_provider_lend_reward_percentage(&collateral_id)
+            .get();
+
+        let accumulated_rewards = self.accumulated_lend_rewards(&collateral_id).get();
+        let liq_provider_reward = self
+            .calculate_percentage_of(&liq_provider_lend_reward_percentage, &accumulated_rewards);
+        let leftover = &accumulated_rewards - &liq_provider_reward;
+
+        let sft_nonce = self.liq_sft_nonce_for_collateral(&collateral_id).get();
+        self.collateral_amount_for_liq_token(sft_nonce)
+            .update(|amt| *amt += liq_provider_reward);
+        self.update_pool(&collateral_id, |pool| {
+            pool.collateral_reserves += leftover;
+        });
+
+        self.accumulated_lend_rewards(&collateral_id).clear();
     }
 
     #[endpoint(forceCloseHedgingPosition)]

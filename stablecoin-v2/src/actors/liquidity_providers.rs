@@ -131,5 +131,9 @@ pub trait LiquidityProvidersModule:
         collateral_id: &TokenIdentifier,
     ) -> SingleValueMapper<BigUint>;
 
-    // TODO: Configurable parameter for lending rewards percentage for SLPs
+    #[storage_mapper("liqProviderLendRewardPercentage")]
+    fn liq_provider_lend_reward_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<BigUint>;
 }

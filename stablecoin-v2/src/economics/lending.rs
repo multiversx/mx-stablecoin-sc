@@ -43,7 +43,10 @@ pub mod lending_proxy {
 
 #[elrond_wasm::module]
 pub trait LendingModule:
-    crate::math::MathModule + crate::pools::PoolsModule + price_aggregator_proxy::PriceAggregatorModule
+    crate::lending_events::LendingEventsModule
+    + crate::math::MathModule
+    + crate::pools::PoolsModule
+    + price_aggregator_proxy::PriceAggregatorModule
 {
     fn lend(&self, collateral_id: TokenIdentifier) -> SCResult<AsyncCall> {
         require!(
@@ -105,6 +108,13 @@ pub trait LendingModule:
 
                 lend_metadata.lend_token_nonce = payment_nonce;
 
+                self.reserves_lended_event(
+                    &collateral_id,
+                    lend_metadata.lend_epoch,
+                    lend_metadata.lend_token_nonce,
+                    &lend_metadata.lend_amount,
+                );
+
                 Ok(())
             })
     }
@@ -113,7 +123,6 @@ pub trait LendingModule:
     #[callback]
     fn lend_callback(
         &self,
-        #[payment_token] payment_token: TokenIdentifier,
         #[payment_amount] payment_amount: BigUint,
         #[call_result] result: ManagedAsyncCallResult<MultiResultVec<ManagedBuffer>>,
     ) {
@@ -122,8 +131,10 @@ pub trait LendingModule:
             ManagedAsyncCallResult::Ok(_) => {}
             // revert
             ManagedAsyncCallResult::Err(_) => {
-                self.lend_metadata_for_collateral(&payment_token).clear();
-                self.update_pool(&payment_token, |pool| {
+                let collateral_id = self.get_temp_collateral_id();
+                
+                self.lend_metadata_for_collateral(&collateral_id).clear();
+                self.update_pool(&collateral_id, |pool| {
                     pool.collateral_reserves += payment_amount;
                 });
             }
@@ -183,6 +194,8 @@ pub trait LendingModule:
         });
         self.accumulated_lend_rewards(&payment_token)
             .update(|accumulated_rewards| *accumulated_rewards += rewards);
+
+        self.lended_reserves_withdrawn_event(&payment_token, &payment_amount);
     }
 
     #[payable("*")]

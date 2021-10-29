@@ -5,24 +5,28 @@ elrond_wasm::derive_imports!();
 
 mod actors;
 mod economics;
+mod events;
 mod tokens;
 
 use actors::*;
 use economics::*;
+use events::*;
 use tokens::*;
-
-// TODO: Add events
 
 #[elrond_wasm::contract]
 pub trait StablecoinV2:
     fees::FeesModule
+    + hedging_agents_events::HedgingAgentsEventsModule
     + hedging_agents::HedgingAgentsModule
     + hedging_token::HedgingTokenModule
     + keepers::KeepersModule
+    + lending_events::LendingEventsModule
     + lending::LendingModule
+    + liquidity_providers_events::LiquidityProvidersEventsModule
     + liquidity_providers::LiquidityProvidersModule
     + liquidity_token::LiquidityTokenModule
     + math::MathModule
+    + pool_events::PoolEventsModule
     + pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
     + stablecoin_token::StablecoinTokenModule
@@ -105,7 +109,7 @@ pub trait StablecoinV2:
             .set(&collateral_num_decimals);
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
-            .set(&(min_fees_percentage, max_fees_percentage));
+            .set(&(min_fees_percentage.clone(), max_fees_percentage.clone()));
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
 
@@ -117,13 +121,38 @@ pub trait StablecoinV2:
             .set(&liq_provider_lend_reward_percentage);
         self.liq_provider_fee_reward_percentage(&collateral_id)
             .set(&liq_provider_fee_reward_percentage);
-        self.min_max_slippage_percentage(&collateral_id)
-            .set(&(min_slippage_percentage, max_slippage_percentage));
+        self.min_max_slippage_percentage(&collateral_id).set(&(
+            min_slippage_percentage.clone(),
+            max_slippage_percentage.clone(),
+        ));
         self.collateral_whitelisted(&collateral_id).set(&true);
 
-        // preserve the pool info if it was added, removed, and then added again
+        self.collateral_added_to_whitelist_event(
+            &collateral_id,
+            &collateral_ticker,
+            collateral_num_decimals,
+            &max_leverage,
+            &min_fees_percentage,
+            &max_fees_percentage,
+            &hedging_maintenance_ratio,
+            &min_leftover_reserves_after_lend,
+            &reserves_lend_percentage,
+            &liq_provider_lend_reward_percentage,
+            &liq_provider_fee_reward_percentage,
+            &min_slippage_percentage,
+            &max_slippage_percentage,
+        );
+
+        // preserve the pool and fee info if it was added, removed, and then added again
         self.pool_for_collateral(&collateral_id)
             .set_if_empty(&pools::Pool::new(self.raw_vm_api()));
+        self.current_fee_configuration(&collateral_id).set_if_empty(
+            &fees::CurrentFeeConfiguration {
+                hedging_ratio: BigUint::zero(),
+                mint_fee_percentage: max_fees_percentage,
+                burn_fee_percentage: min_fees_percentage,
+            },
+        );
 
         Ok(())
     }
@@ -146,5 +175,7 @@ pub trait StablecoinV2:
             .clear();
         self.min_max_slippage_percentage(&collateral_id).clear();
         self.collateral_whitelisted(&collateral_id).clear();
+
+        self.collateral_removed_from_whitelist_event(&collateral_id);
     }
 }

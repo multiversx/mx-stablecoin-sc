@@ -5,6 +5,7 @@ pub trait StableSeekers:
     crate::fees::FeesModule
     + crate::math::MathModule
     + crate::pools::PoolsModule
+    + crate::pool_events::PoolEventsModule
     + price_aggregator_proxy::PriceAggregatorModule
     + crate::stablecoin_token::StablecoinTokenModule
     + crate::token_common::TokenCommonModule
@@ -37,6 +38,15 @@ pub trait StableSeekers:
 
         let caller = self.blockchain().get_caller();
         self.mint_and_send_stablecoin(&caller, &stablecoin_amount);
+
+        let stablecoin_token_id = self.stablecoin_token_id().get();
+        self.swap_event(
+            &caller,
+            &payment_token,
+            &stablecoin_token_id,
+            &payment_amount,
+            &stablecoin_amount,
+        );
 
         Ok(())
     }
@@ -89,6 +99,14 @@ pub trait StableSeekers:
         let caller = self.blockchain().get_caller();
         self.send()
             .direct(&caller, &collateral_id, 0, &collateral_amount, &[]);
+
+        self.swap_event(
+            &caller,
+            &stablecoin_token_id,
+            &collateral_id,
+            &payment_amount,
+            &collateral_amount,
+        );
 
         Ok(())
     }

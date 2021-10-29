@@ -5,12 +5,16 @@ use crate::{fees::CurrentFeeConfiguration, hedging_agents::HedgingPosition, math
 #[elrond_wasm::module]
 pub trait KeepersModule:
     crate::fees::FeesModule
+    + crate::hedging_agents_events::HedgingAgentsEventsModule
     + crate::hedging_agents::HedgingAgentsModule
     + crate::hedging_token::HedgingTokenModule
+    + crate::lending_events::LendingEventsModule
     + crate::lending::LendingModule
+    + crate::liquidity_providers_events::LiquidityProvidersEventsModule
     + crate::liquidity_providers::LiquidityProvidersModule
     + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
+    + crate::pool_events::PoolEventsModule
     + crate::pools::PoolsModule
     + price_aggregator_proxy::PriceAggregatorModule
     + crate::token_common::TokenCommonModule
@@ -28,6 +32,7 @@ pub trait KeepersModule:
                 &collateral_value_in_dollars,
                 &collateral_precision,
             );
+            let old_collateral_amount = pool.collateral_amount.clone();
 
             // collateral value increased, so we move the extra to reserves
             if pool_value_in_dollars > pool.stablecoin_amount {
@@ -58,6 +63,14 @@ pub trait KeepersModule:
                 pool.collateral_reserves -= missing_collateral_amount;
             }
 
+            self.pool_rebalanced_event(
+                &collateral_id,
+                &old_collateral_amount,
+                &pool.stablecoin_amount,
+                &pool.collateral_amount,
+                &pool_value_in_dollars,
+            );
+
             pool.stablecoin_amount = pool_value_in_dollars;
 
             Ok(())
@@ -70,6 +83,13 @@ pub trait KeepersModule:
         let mint_fee_percentage = self.calculate_mint_transaction_fees_percentage(&collateral_id);
         let burn_fee_percentage = self.calculate_burn_transaction_fees_percentage(&collateral_id);
 
+        self.fees_updated_event(
+            &collateral_id,
+            &hedging_ratio,
+            &mint_fee_percentage,
+            &burn_fee_percentage,
+        );
+
         self.current_fee_configuration(&collateral_id)
             .set(&CurrentFeeConfiguration {
                 hedging_ratio,
@@ -80,23 +100,28 @@ pub trait KeepersModule:
 
     #[endpoint(splitFees)]
     fn split_fees(&self, collateral_id: TokenIdentifier) {
+        let accumulated_fees = self.accumulated_tx_fees(&collateral_id).get();
+        if accumulated_fees == 0u32 {
+            return;
+        }
+
         let liq_provider_fee_reward_percentage = self
             .liq_provider_fee_reward_percentage(&collateral_id)
             .get();
-
-        let accumulated_fees = self.accumulated_tx_fees(&collateral_id).get();
         let liq_provider_reward =
             self.calculate_percentage_of(&liq_provider_fee_reward_percentage, &accumulated_fees);
         let leftover = &accumulated_fees - &liq_provider_reward;
 
         let sft_nonce = self.liq_sft_nonce_for_collateral(&collateral_id).get();
         self.collateral_amount_for_liq_token(sft_nonce)
-            .update(|amt| *amt += liq_provider_reward);
+            .update(|amt| *amt += &liq_provider_reward);
         self.update_pool(&collateral_id, |pool| {
-            pool.collateral_reserves += leftover;
+            pool.collateral_reserves += &leftover;
         });
 
         self.accumulated_tx_fees(&collateral_id).clear();
+
+        self.fees_split_event(&collateral_id, &liq_provider_reward, &leftover);
     }
 
     #[endpoint(lendReserves)]
@@ -111,23 +136,29 @@ pub trait KeepersModule:
 
     #[endpoint(splitLendRewards)]
     fn split_lend_rewards(&self, collateral_id: TokenIdentifier) {
+        let accumulated_rewards = self.accumulated_lend_rewards(&collateral_id).get();
+        if accumulated_rewards == 0u32 {
+            return;
+        }
+
         let liq_provider_lend_reward_percentage = self
             .liq_provider_lend_reward_percentage(&collateral_id)
             .get();
 
-        let accumulated_rewards = self.accumulated_lend_rewards(&collateral_id).get();
         let liq_provider_reward = self
             .calculate_percentage_of(&liq_provider_lend_reward_percentage, &accumulated_rewards);
         let leftover = &accumulated_rewards - &liq_provider_reward;
 
         let sft_nonce = self.liq_sft_nonce_for_collateral(&collateral_id).get();
         self.collateral_amount_for_liq_token(sft_nonce)
-            .update(|amt| *amt += liq_provider_reward);
+            .update(|amt| *amt += &liq_provider_reward);
         self.update_pool(&collateral_id, |pool| {
-            pool.collateral_reserves += leftover;
+            pool.collateral_reserves += &leftover;
         });
 
         self.accumulated_lend_rewards(&collateral_id).clear();
+
+        self.lend_rewards_split_event(&collateral_id, &liq_provider_reward, &leftover);
     }
 
     #[endpoint(forceCloseHedgingPosition)]
@@ -146,8 +177,10 @@ pub trait KeepersModule:
         self.close_position(&hedging_position)?;
 
         let withdraw_amount = self.get_withdraw_amount_and_update_fees(&hedging_position, None)?;
-        hedging_position.withdraw_amount_after_force_close = Some(withdraw_amount);
+        hedging_position.withdraw_amount_after_force_close = Some(withdraw_amount.clone());
         self.hedging_position(nft_nonce).set(&hedging_position);
+
+        self.hedging_position_force_closed_event(nft_nonce, &withdraw_amount);
 
         Ok(())
     }
@@ -169,7 +202,13 @@ pub trait KeepersModule:
         );
 
         self.close_position(&hedging_position)?;
+        self.update_pool(&hedging_position.collateral_id, |pool| {
+            pool.collateral_reserves += &hedging_position.deposit_amount;
+        });
+
         self.hedging_position(nft_nonce).clear();
+
+        self.hedging_position_liquidated_event(nft_nonce, &hedging_position.deposit_amount);
 
         Ok(())
     }

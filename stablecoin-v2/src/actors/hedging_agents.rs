@@ -33,6 +33,7 @@ impl<M: ManagedTypeApi> HedgingPosition<M> {
 #[elrond_wasm::module]
 pub trait HedgingAgentsModule:
     crate::fees::FeesModule
+    + crate::hedging_agents_events::HedgingAgentsEventsModule
     + crate::hedging_token::HedgingTokenModule
     + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
@@ -90,12 +91,13 @@ pub trait HedgingAgentsModule:
 
         pool.collateral_reserves += &collateral_amount;
 
+        let current_timestamp = self.blockchain().get_block_timestamp();
         let hedging_position = HedgingPosition {
             collateral_id: payment_token.clone(),
-            deposit_amount: collateral_amount,
-            covered_amount: amount_to_cover,
-            oracle_value_at_deposit_time: collateral_value_in_dollars,
-            creation_timestamp: self.blockchain().get_block_timestamp(),
+            deposit_amount: collateral_amount.clone(),
+            covered_amount: amount_to_cover.clone(),
+            oracle_value_at_deposit_time: collateral_value_in_dollars.clone(),
+            creation_timestamp: current_timestamp,
             withdraw_amount_after_force_close: None,
         };
         self.require_under_max_leverage(&hedging_position)?;
@@ -109,6 +111,15 @@ pub trait HedgingAgentsModule:
 
         self.set_pool(&payment_token, &pool);
         self.hedging_position(nft_nonce).set(&hedging_position);
+
+        self.hedging_position_opened_event(
+            nft_nonce,
+            &payment_token,
+            &collateral_amount,
+            &amount_to_cover,
+            &collateral_value_in_dollars,
+            current_timestamp,
+        );
 
         Ok(())
     }
@@ -124,35 +135,37 @@ pub trait HedgingAgentsModule:
             "Invalid number of transfers"
         );
 
-        let first_transfer = &transfers[0];
-        let second_transfer = &transfers[1];
+        let nft_transfer = &transfers[0];
+        let collateral_transfer = &transfers[1];
 
         let hedging_token_id = self.hedging_token_id().get();
         require!(
-            first_transfer.token_identifier == hedging_token_id,
+            nft_transfer.token_identifier == hedging_token_id,
             "First token should be the hedging NFT"
         );
 
-        let nft_nonce = first_transfer.token_nonce;
+        let nft_nonce = nft_transfer.token_nonce;
         self.hedging_position(nft_nonce).update(|hedging_pos| {
             require!(
-                second_transfer.token_identifier == hedging_pos.collateral_id,
+                collateral_transfer.token_identifier == hedging_pos.collateral_id,
                 "Second token should be the collateral for the position"
             );
             self.require_not_closed(hedging_pos)?;
 
-            hedging_pos.deposit_amount += &second_transfer.amount;
+            hedging_pos.deposit_amount += &collateral_transfer.amount;
             self.require_under_max_leverage(hedging_pos)?;
 
             Ok(())
         })?;
-        self.update_pool(&second_transfer.token_identifier, |pool| {
-            pool.collateral_reserves += &second_transfer.amount;
+        self.update_pool(&collateral_transfer.token_identifier, |pool| {
+            pool.collateral_reserves += &collateral_transfer.amount;
         });
 
         // return the nft
         let caller = self.blockchain().get_caller();
         self.send_hedging_token(&caller, nft_nonce);
+
+        self.hedging_position_added_margin_event(nft_nonce, &collateral_transfer.amount);
 
         Ok(())
     }
@@ -201,6 +214,8 @@ pub trait HedgingAgentsModule:
         // return the nft
         self.send_hedging_token(&caller, payment_nonce);
 
+        self.hedging_position_removed_margin_event(payment_nonce, &amount_to_remove);
+
         Ok(())
     }
 
@@ -247,22 +262,29 @@ pub trait HedgingAgentsModule:
         self.burn_hedging_token(payment_nonce);
 
         let caller = self.blockchain().get_caller();
-        self.send().direct(
-            &caller,
-            &hedging_position.collateral_id,
-            0,
-            &withdraw_split.collateral_amount,
-            &[],
-        );
+        if withdraw_split.collateral_amount > 0 {
+            self.send().direct(
+                &caller,
+                &hedging_position.collateral_id,
+                0,
+                &withdraw_split.collateral_amount,
+                &[],
+            );
+        }
 
-        let liq_tokens_amount = withdraw_split.liq_tokens_amount;
-        if liq_tokens_amount > 0 {
+        if withdraw_split.liq_tokens_amount > 0 {
             self.create_and_send_liq_tokens(
                 &caller,
                 &hedging_position.collateral_id,
-                &liq_tokens_amount,
+                &withdraw_split.liq_tokens_amount,
             );
         }
+
+        self.hedging_position_closed_event(
+            payment_nonce,
+            &withdraw_split.collateral_amount,
+            &withdraw_split.liq_tokens_amount,
+        );
 
         Ok(())
     }
@@ -373,8 +395,11 @@ pub trait HedgingAgentsModule:
         } else {
             let collateral_amount_over_reserves = &full_withdraw_amount - &reserves;
             let collateral_precision = self.get_collateral_precision(collateral_id);
-            let amount_in_liq_tokens =
-                self.collateral_to_liq_tokens(collateral_id, &collateral_amount_over_reserves, &collateral_precision);
+            let amount_in_liq_tokens = self.collateral_to_liq_tokens(
+                collateral_id,
+                &collateral_amount_over_reserves,
+                &collateral_precision,
+            );
 
             HedgerRewardAmountsTokensPair {
                 collateral_amount: reserves,

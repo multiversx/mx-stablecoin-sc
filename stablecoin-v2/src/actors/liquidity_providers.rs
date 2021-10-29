@@ -5,6 +5,7 @@ elrond_wasm::imports!();
 #[elrond_wasm::module]
 pub trait LiquidityProvidersModule:
     crate::fees::FeesModule
+    + crate::liquidity_providers_events::LiquidityProvidersEventsModule
     + crate::liquidity_token::LiquidityTokenModule
     + crate::math::MathModule
     + crate::pools::PoolsModule
@@ -34,6 +35,13 @@ pub trait LiquidityProvidersModule:
 
         let caller = self.blockchain().get_caller();
         self.send_liq_tokens(&caller, sft_nonce, &amount_in_liq_tokens);
+
+        self.added_liquidity_event(
+            sft_nonce,
+            &payment_token,
+            &payment_amount,
+            &amount_in_liq_tokens,
+        );
 
         Ok(())
     }
@@ -87,6 +95,13 @@ pub trait LiquidityProvidersModule:
             0,
             &collateral_amount_after_slippage,
             &[],
+        );
+
+        self.removed_liquidity_event(
+            payment_nonce,
+            &collateral_id,
+            &payment_amount,
+            &collateral_amount_after_slippage,
         );
 
         Ok(())

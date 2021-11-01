@@ -1,0 +1,233 @@
+{
+    "name": "init",
+    "gasSchedule": "v4",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "../../price-aggregator/mandos/oracle_submit.scen.json"
+        },
+        {
+            "step": "setState",
+            "accounts": {
+                "address:owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:user1": {
+                    "nonce": "0",
+                    "balance": "100,000,000,000,000,000,000",
+                    "storage": {}
+                },
+                "address:user2": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:WETH-abcdef": "100,000,000,000,000,000,000"
+                    }
+                },
+                "address:hedger1": {
+                    "nonce": "0",
+                    "balance": "100,000,000,000,000,000,000",
+                    "storage": {}
+                },
+                "address:hedger2": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:WETH-abcdef": "100,000,000,000,000,000,000"
+                    },
+                    "storage": {}
+                },
+                "address:liq_provider1": {
+                    "nonce": "0",
+                    "balance": "100,000,000,000,000,000,000",
+                    "storage": {}
+                },
+                "address:liq_provider2": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:WETH-abcdef": "100,000,000,000,000,000,000"
+                    },
+                    "storage": {}
+                }
+            },
+            "newAddresses": [
+                {
+                    "creatorAddress": "address:owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:stablecoin"
+                }
+            ]
+        },
+        {
+            "step": "scDeploy",
+            "txId": "deploy",
+            "comment": "min period of 3,600 seconds (1 hour), 0.9 target hedging ratio, 0.95 hedging ratio limit",
+            "tx": {
+                "from": "address:owner",
+                "value": "0",
+                "contractCode": "file:../output/stablecoin-v2.wasm",
+                "arguments": [
+                    "sc:price_aggregator",
+                    "sc:lending",
+                    "str:LEND-abcdef",
+                    "10",
+                    "3,600",
+                    "9,000,000",
+                    "9,500,000"
+                ],
+                "gasLimit": "20,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "logs": [],
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {
+                        "str:priceAggregatorAddress": "sc:price_aggregator",
+                        "str:lendingScAddress": "sc:lending",
+                        "str:lendingTokenId": "str:LEND-abcdef",
+                        "str:minLendEpochs": "10",
+                        "str:minHedgingPeriodSeconds": "3,600",
+                        "str:targetHedgingRatio": "9,000,000",
+                        "str:hedgingRatioLimit": "9,500,000"
+                    },
+                    "code": "file:../output/stablecoin-v2.wasm"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "setState",
+            "comment": "simulate issue + set roles",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "esdt": {
+                        "str:STCOIN-abcdef": {
+                            "balance": "0",
+                            "roles": [
+                                "ESDTRoleLocalMint",
+                                "ESDTRoleLocalBurn"
+                            ]
+                        },
+                        "str:HEDGE-abcdef": {
+                            "balance": "0",
+                            "lastNonce": "0",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTBurn"
+                            ]
+                        },
+                        "str:LIQ-abcdef": {
+                            "balance": "0",
+                            "lastNonce": "0",
+                            "roles": [
+                                "ESDTRoleNFTCreate",
+                                "ESDTRoleNFTAddQuantity",
+                                "ESDTRoleNFTBurn"
+                            ]
+                        }
+                    },
+                    "storage": {
+                        "str:priceAggregatorAddress": "sc:price_aggregator",
+                        "str:lendingScAddress": "sc:lending",
+                        "str:lendingTokenId": "str:LEND-abcdef",
+                        "str:minLendEpochs": "10",
+                        "str:minHedgingPeriodSeconds": "3,600",
+                        "str:targetHedgingRatio": "9,000,000",
+                        "str:hedgingRatioLimit": "9,500,000",
+
+                        "str:stablecoinTokenId": "str:STCOIN-abcdef",
+                        "str:hedgingTokenId": "str:HEDGE-abcdef",
+                        "str:liquidityTokenId": "str:LIQ-abcdef"
+                    },
+                    "code": "file:../output/stablecoin-v2.wasm",
+                    "owner": "address:owner"
+                }
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "add-egld-to-whitelist",
+            "comment": "18 decimals, max leverage of 10, 0.2% min fees, 0.4% max fees, margin ratio of 5, min 10 EGLD leftover reserves after lend, 60% reserves lend percentage, 10% lend rewards percentage for liq providers, 10% fee rewards percentage, 0% min slippage, 0.5% max slippage",
+            "tx": {
+                "from": "address:owner",
+                "to": "sc:stablecoin",
+                "value": "",
+                "function": "addCollateralToWhitelist",
+                "arguments": [
+                    "str:EGLD",
+                    "str:EGLD",
+                    "18",
+                    "10",
+                    "2,000,000",
+                    "4,000,000",
+                    "50,000,000",
+                    "10,000,000,000,000,000,000",
+                    "600,000,000",
+                    "100,000,000",
+                    "100,000,000",
+                    "0",
+                    "5,000,000"
+                ],
+                "gasLimit": "30,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "add-wrapped-eth-to-whitelist",
+            "comment": "using the same arguments as for EGLD",
+            "tx": {
+                "from": "address:owner",
+                "to": "sc:stablecoin",
+                "value": "",
+                "function": "addCollateralToWhitelist",
+                "arguments": [
+                    "str:WETH-abcdef",
+                    "str:ETH",
+                    "18",
+                    "10",
+                    "2,000,000",
+                    "4,000,000",
+                    "50,000,000",
+                    "10,000,000,000,000,000,000",
+                    "600,000,000",
+                    "100,000,000",
+                    "100,000,000",
+                    "0",
+                    "5,000,000"
+                ],
+                "gasLimit": "30,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

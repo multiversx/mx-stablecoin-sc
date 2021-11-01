@@ -12,16 +12,18 @@ path = "src/lib.rs"
 wasm-output-mode = [ "elrond-wasm-node",]
 
 [dependencies.elrond-wasm]
-version = "0.20.1"
-features = [ "derive" ]
+version = "0.21.2"
+
+[dependencies.elrond-wasm-derive]
+version = "0.21.2"
 
 [dependencies.elrond-wasm-node]
-version = "0.20.1"
+version = "0.21.2"
 optional = true
 
 [dev-dependencies.elrond-wasm-debug]
-version = "0.20.1"
+version = "0.21.2"
 
 [dependencies.price-aggregator-proxy]
 git = "https://github.com/ElrondNetwork/sc-chainlink-rs"
-rev = "8817a46"
+rev = "470c9ab"

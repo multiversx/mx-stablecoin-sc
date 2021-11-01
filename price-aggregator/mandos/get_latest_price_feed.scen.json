@@ -1,0 +1,60 @@
+{
+    "name": "get latest round data",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "oracle_submit.scen.json"
+        },
+        {
+            "step": "scQuery",
+            "tx": {
+                "to": "sc:price_aggregator",
+                "function": "latestPriceFeedOptional",
+                "arguments": [
+                    "str:EGLD",
+                    "str:USD"
+                ]
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "out": [
+                    "1",
+                    "str:EGLD",
+                    "str:USD",
+                    "100,000,000",
+                    "0"
+                ]
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "query-through-call-some",
+            "tx": {
+                "from": "address:oracle",
+                "to": "sc:price_aggregator",
+                "value": "0",
+                "function": "latestPriceFeedOptional",
+                "arguments": [
+                    "str:ETH",
+                    "str:USD"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "1",
+                    "str:ETH",
+                    "str:USD",
+                    "1,000,000,000",
+                    "0"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

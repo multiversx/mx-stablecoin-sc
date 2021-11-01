@@ -1,0 +1,202 @@
+{
+    "name": "buy collateral",
+    "gasSchedule": "v4",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "sell_collateral_first.scen.json"
+        },
+        {
+            "step": "scCall",
+            "txId": "buy-collateral-too-low-out-amount",
+            "tx": {
+                "from": "address:user1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:STCOIN-abcdef",
+                    "value": "500,000,000"
+                },
+                "function": "buyCollateral",
+                "arguments": [
+                    "str:WETH-abcdef",
+                    "600,000,000,000,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Below min amount",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "buy-collateral-eth-ok",
+            "comment": "buy $500 worth of ETH. Should receive 0.5 ETH, with 0.2% fees = 0.499 ETH",
+            "tx": {
+                "from": "address:user1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:STCOIN-abcdef",
+                    "value": "500,000,000"
+                },
+                "function": "buyCollateral",
+                "arguments": [
+                    "str:WETH-abcdef",
+                    "400,000,000,000,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:user1": {
+                    "nonce": "*",
+                    "balance": "90,000,000,000,000,000,000",
+                    "esdt": {
+                        "str:STCOIN-abcdef": "496,000,000",
+                        "str:WETH-abcdef": "499,000,000,000,000,000"
+                    }
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "10,000,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:9,960,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:996,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "40,000,000,000,000,000",
+
+                        "str:poolForCollateral|nested:str:WETH-abcdef": {
+                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:9,460,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "buy-collateral-egld-too-much",
+            "tx": {
+                "from": "address:user2",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:STCOIN-abcdef",
+                    "value": "1,000,000,000"
+                },
+                "function": "buyCollateral",
+                "arguments": [
+                    "str:EGLD",
+                    "9,000,000,000,000,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Insufficient funds for swap",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "buy-collateral-eth-ok",
+            "comment": "buy $500 worth of EGLD. Should receive 5 EGLD, with 0.2% fees = 4.99 EGLD",
+            "tx": {
+                "from": "address:user2",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:STCOIN-abcdef",
+                    "value": "500,000,000"
+                },
+                "function": "buyCollateral",
+                "arguments": [
+                    "str:EGLD",
+                    "400,000,000,000,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:user2": {
+                    "nonce": "*",
+                    "balance": "4,990,000,000,000,000,000",
+                    "esdt": {
+                        "str:WETH-abcdef": "90,000,000,000,000,000,000",
+                        "str:STCOIN-abcdef": "9,460,000,000"
+                    }
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "5,010,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,960,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "50,000,000,000,000,000",
+
+                        "str:poolForCollateral|nested:str:WETH-abcdef": {
+                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:9,460,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        }
+    ]
+}

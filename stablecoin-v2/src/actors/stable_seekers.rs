@@ -26,7 +26,13 @@ pub trait StableSeekers:
             self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
         let collateral_amount = &payment_amount - &fees_amount_in_collateral;
 
-        let stablecoin_amount = &collateral_value_in_dollars * &collateral_amount;
+        let collateral_precision = self.get_collateral_precision(&payment_token);
+        let stablecoin_amount = self.multiply(
+            &collateral_value_in_dollars,
+            &collateral_amount,
+            &collateral_precision,
+        );
+
         require!(stablecoin_amount >= min_amount_out, "Below min amount");
 
         self.update_pool(&payment_token, |pool| {
@@ -68,7 +74,13 @@ pub trait StableSeekers:
         self.require_collateral_in_whitelist(&collateral_id)?;
 
         let collateral_value_in_dollars = self.get_collateral_value_in_dollars(&collateral_id)?;
-        let total_value_in_collateral = &payment_amount / &collateral_value_in_dollars;
+        let collateral_precision = self.get_collateral_precision(&collateral_id);
+        let total_value_in_collateral = self.divide(
+            &payment_amount,
+            &collateral_value_in_dollars,
+            &collateral_precision,
+        );
+
         let transaction_fees_percentage = self.get_burn_transaction_fees_percentage(&collateral_id);
         let fees_amount_in_collateral =
             self.calculate_percentage_of(&transaction_fees_percentage, &total_value_in_collateral);
@@ -86,7 +98,7 @@ pub trait StableSeekers:
                 "Too many stablecoins paid"
             );
 
-            pool.collateral_amount -= &collateral_amount;
+            pool.collateral_amount -= &total_value_in_collateral;
             pool.stablecoin_amount -= &payment_amount;
 
             Ok(())

@@ -3,11 +3,18 @@ elrond_wasm::derive_imports!();
 
 use crate::math::ONE;
 
+#[derive(TopEncode, TopDecode, Clone)]
+pub struct MinMaxPair<M: ManagedTypeApi> {
+    pub min: BigUint<M>,
+    pub max: BigUint<M>,
+}
+
 #[derive(TopEncode, TopDecode)]
 pub struct CurrentFeeConfiguration<M: ManagedTypeApi> {
     pub hedging_ratio: BigUint<M>,
     pub mint_fee_percentage: BigUint<M>,
     pub burn_fee_percentage: BigUint<M>,
+    pub slippage_percentage: BigUint<M>,
 }
 
 #[elrond_wasm::module]
@@ -35,6 +42,13 @@ pub trait FeesModule:
             .burn_fee_percentage
     }
 
+    #[view(getSlippagePercentage)]
+    fn get_slippage_percenage(&self, collateral_id: &TokenIdentifier) -> BigUint {
+        self.current_fee_configuration(collateral_id)
+            .get()
+            .slippage_percentage
+    }
+
     // The more collateral is covered, the more expensive it is to open a position
     // This scales the same way as the burn transaction fees, so we use the same formula
     #[view(getHedgingPositionOpenTransactionFeesPercentage)]
@@ -46,6 +60,7 @@ pub trait FeesModule:
     }
 
     // The more collateral is covered, the less expensive it is to exit
+    // This scales the same way as the mint transaction fees
     #[view(getHedgingPositionCloseTransactionFeesPercentage)]
     fn get_hedging_position_close_transaction_fees_percentage(
         &self,
@@ -57,49 +72,63 @@ pub trait FeesModule:
     // mint fees decrease as coverage ratio increases
     fn calculate_mint_transaction_fees_percentage(
         &self,
-        collateral_id: &TokenIdentifier,
+        current_hedging_ratio: &BigUint,
+        fees_percentage: MinMaxPair<Self::Api>,
     ) -> BigUint {
         let target_hedging_ratio = self.target_hedging_ratio().get();
-        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
-        let (min_fees_percentage, max_fees_percentage) =
-            self.min_max_fees_percentage(collateral_id).get();
         let one = BigUint::from(ONE);
 
-        if current_hedging_ratio == 0 {
-            return max_fees_percentage;
+        if current_hedging_ratio == &0 {
+            return fees_percentage.max;
         }
-        if current_hedging_ratio >= target_hedging_ratio {
-            return min_fees_percentage;
+        if current_hedging_ratio >= &target_hedging_ratio {
+            return fees_percentage.min;
         }
 
-        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
+        let percentage_diff = &fees_percentage.max - &fees_percentage.min;
 
         // max - (max - min) * hedging_ratio
-        max_fees_percentage - self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+        fees_percentage.max - self.multiply(current_hedging_ratio, &percentage_diff, &one)
     }
 
     // burn fees decrease as coverage ratio decreases
     fn calculate_burn_transaction_fees_percentage(
         &self,
-        collateral_id: &TokenIdentifier,
+        current_hedging_ratio: &BigUint,
+        fees_percentage: MinMaxPair<Self::Api>,
     ) -> BigUint {
         let target_hedging_ratio = self.target_hedging_ratio().get();
-        let current_hedging_ratio = self.calculate_current_hedging_ratio(collateral_id);
-        let (min_fees_percentage, max_fees_percentage) =
-            self.min_max_fees_percentage(collateral_id).get();
         let one = BigUint::from(ONE);
 
-        if current_hedging_ratio == 0 {
-            return min_fees_percentage;
+        if current_hedging_ratio == &0 {
+            return fees_percentage.min;
         }
-        if current_hedging_ratio >= target_hedging_ratio {
-            return max_fees_percentage;
+        if current_hedging_ratio >= &target_hedging_ratio {
+            return fees_percentage.max;
         }
 
-        let percentage_diff = &max_fees_percentage - &min_fees_percentage;
+        let percentage_diff = &fees_percentage.max - &fees_percentage.min;
 
         // min + (max - min) * hedging_ratio
-        min_fees_percentage + self.multiply(&current_hedging_ratio, &percentage_diff, &one)
+        fees_percentage.min + self.multiply(current_hedging_ratio, &percentage_diff, &one)
+    }
+
+    fn calculate_slippage_percentage(
+        &self,
+        current_hedging_ratio: &BigUint,
+        slippage_percentage: MinMaxPair<Self::Api>
+    ) -> BigUint {
+        let one = BigUint::from(ONE);
+
+        // no slippage if all collateral is covered
+        if current_hedging_ratio >= &one {
+            return BigUint::zero();
+        }
+
+        let percentage_diff = &slippage_percentage.max - &slippage_percentage.min;
+
+        // max - (max - min) * hedging_ratio
+        slippage_percentage.max - self.multiply(current_hedging_ratio, &percentage_diff, &one)
     }
 
     fn calculate_current_hedging_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
@@ -113,12 +142,16 @@ pub trait FeesModule:
 
     fn calculate_target_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
         let target_hedging_ratio = self.target_hedging_ratio().get();
-        self.calculate_percentage_of(&target_hedging_ratio, collateral_amount)
+        self.multiply(
+            &target_hedging_ratio,
+            collateral_amount,
+            &BigUint::from(ONE),
+        )
     }
 
     fn calculate_limit_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
         let hedging_ratio_limit = self.hedging_ratio_limit().get();
-        self.calculate_percentage_of(&hedging_ratio_limit, collateral_amount)
+        self.multiply(&hedging_ratio_limit, collateral_amount, &BigUint::from(ONE))
     }
 
     // storage
@@ -127,7 +160,13 @@ pub trait FeesModule:
     fn min_max_fees_percentage(
         &self,
         collateral_id: &TokenIdentifier,
-    ) -> SingleValueMapper<(BigUint, BigUint)>;
+    ) -> SingleValueMapper<MinMaxPair<Self::Api>>;
+
+    #[storage_mapper("minMaxSlippagePercentage")]
+    fn min_max_slippage_percentage(
+        &self,
+        collateral_id: &TokenIdentifier,
+    ) -> SingleValueMapper<MinMaxPair<Self::Api>>;
 
     #[storage_mapper("currentFeeConfiguration")]
     fn current_fee_configuration(

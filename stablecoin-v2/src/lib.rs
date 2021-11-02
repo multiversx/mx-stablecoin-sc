@@ -113,7 +113,10 @@ pub trait StablecoinV2:
             .set(&collateral_num_decimals);
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
-            .set(&(min_fees_percentage.clone(), max_fees_percentage.clone()));
+            .set(&fees::MinMaxPair {
+                min: min_fees_percentage.clone(),
+                max: max_fees_percentage.clone(),
+            });
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
 
@@ -125,10 +128,11 @@ pub trait StablecoinV2:
             .set(&liq_provider_lend_reward_percentage);
         self.liq_provider_fee_reward_percentage(&collateral_id)
             .set(&liq_provider_fee_reward_percentage);
-        self.min_max_slippage_percentage(&collateral_id).set(&(
-            min_slippage_percentage.clone(),
-            max_slippage_percentage.clone(),
-        ));
+        self.min_max_slippage_percentage(&collateral_id)
+            .set(&fees::MinMaxPair {
+                min: min_slippage_percentage.clone(),
+                max: max_slippage_percentage.clone(),
+            });
         self.collateral_whitelisted(&collateral_id).set(&true);
 
         self.collateral_added_to_whitelist_event(
@@ -155,6 +159,7 @@ pub trait StablecoinV2:
                 hedging_ratio: BigUint::zero(),
                 mint_fee_percentage: max_fees_percentage,
                 burn_fee_percentage: min_fees_percentage,
+                slippage_percentage: max_slippage_percentage,
             },
         );
 

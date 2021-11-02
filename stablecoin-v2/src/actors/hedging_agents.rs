@@ -86,9 +86,13 @@ pub trait HedgingAgentsModule:
         let transaction_fees_percentage =
             self.get_hedging_position_open_transaction_fees_percentage(&payment_token);
         let fees_amount_in_collateral =
-            self.calculate_percentage_of(&transaction_fees_percentage, &payment_amount);
-        let collateral_amount = &payment_amount - &fees_amount_in_collateral;
+            self.calculate_percentage_of(&transaction_fees_percentage, &amount_to_cover);
+        require!(
+            payment_amount > fees_amount_in_collateral,
+            "Payment does not cover entry fees"
+        );
 
+        let collateral_amount = &payment_amount - &fees_amount_in_collateral;
         pool.collateral_reserves += &collateral_amount;
 
         let current_timestamp = self.blockchain().get_block_timestamp();
@@ -166,7 +170,7 @@ pub trait HedgingAgentsModule:
         self.send_hedging_token(&caller, nft_nonce);
 
         self.hedging_position_added_margin_event(nft_nonce, &collateral_transfer.amount);
-
+        
         Ok(())
     }
 
@@ -371,8 +375,10 @@ pub trait HedgingAgentsModule:
             .get_hedging_position_close_transaction_fees_percentage(
                 &hedging_position.collateral_id,
             );
-        let fees_amount =
-            self.calculate_percentage_of(&transaction_fees_percentage, &base_withdraw_amount);
+        let fees_amount = self.calculate_percentage_of(
+            &transaction_fees_percentage,
+            &hedging_position.covered_amount,
+        );
         let withdraw_amount = &base_withdraw_amount - &fees_amount;
 
         Ok(HedgerWithdrawAmountFeeSplit {
@@ -440,7 +446,7 @@ pub trait HedgingAgentsModule:
     fn require_not_liquidated(&self, nft_nonce: u64) -> SCResult<()> {
         require!(
             !self.hedging_position(nft_nonce).is_empty(),
-            "Position liquidated"
+            "Position does not exist or is already liquidated"
         );
         Ok(())
     }

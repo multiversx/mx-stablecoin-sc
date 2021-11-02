@@ -50,6 +50,7 @@ pub trait PoolEventsModule {
         #[indexed] hedging_ratio: &BigUint,
         #[indexed] mint_fee_percentage: &BigUint,
         #[indexed] burn_fee_percentage: &BigUint,
+        #[indexed] slippage_percentage: &BigUint,
     );
 
     #[event("feesSplit")]
@@ -59,6 +60,4 @@ pub trait PoolEventsModule {
         #[indexed] liq_providers_amount: &BigUint,
         #[indexed] reserves_amount: &BigUint,
     );
-
-    // add/remove from whitelist
 }

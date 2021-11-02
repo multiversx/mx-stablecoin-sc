@@ -1,0 +1,198 @@
+{
+    "name": "open hedging position",
+    "gasSchedule": "v4",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "buy_collateral_first.scen.json"
+        },
+        {
+            "step": "scCall",
+            "txId": "open-hedging-position-oracle-value-too-high",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "value": "5,000,000,000,000,000,000",
+                "function": "openHedgingPosition",
+                "arguments": [
+                    "4,000,000,000,000,000,000",
+                    "80,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Oracle value is higher than the provided max",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "open-hedging-position-cover-too-much-collateral",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "value": "5,000,000,000,000,000,000",
+                "function": "openHedgingPosition",
+                "arguments": [
+                    "5,000,000,000,000,000,000",
+                    "150,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Trying to cover too much collateral",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "open-hedging-position-over-target-hedge-amount",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "value": "5,000,000,000,000,000,000",
+                "function": "openHedgingPosition",
+                "arguments": [
+                    "4,900,000,000,000,000,000",
+                    "150,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Position would go over target hedge amount",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "open-hedging-position-over-max-leverage",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "value": "3,000,000,000,000,000",
+                "function": "openHedgingPosition",
+                "arguments": [
+                    "1,000,000,000,000,000,000",
+                    "150,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Leverage too high",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "open-hedging-position-egld-ok",
+            "comment": "0.2% fees, so we remove 0.2% * 4.2 EGLD from the margin => initial margin of 3 EGLD - 0.0084 EGLD = 2.9916 EGLD",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "value": "3,000,000,000,000,000,000",
+                "function": "openHedgingPosition",
+                "arguments": [
+                    "4,200,000,000,000,000,000",
+                    "150,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:hedger1": {
+                    "nonce": "*",
+                    "balance": "97,000,000,000,000,000,000",
+                    "esdt": {
+                        "str:HEDGE-abcdef": {
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "1",
+                                    "creator": "sc:stablecoin"
+                                }
+                            ]
+                        }
+                    },
+                    "storage": {}
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "8,010,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,960,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:2,991,600,000,000,000,000",
+                            "4-total_collateral_covered": "biguint:4,200,000,000,000,000,000",
+                            "5-total_covered_value_in_stablecoin": "biguint:420,000,000"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "58,400,000,000,000,000",
+
+                        "str:poolForCollateral|nested:str:WETH-abcdef": {
+                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:9,460,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "keeper-update-fees",
+            "tx": {
+                "from": "address:keeper",
+                "to": "sc:stablecoin",
+                "function": "updateFeesPercentage",
+                "arguments": [
+                    "str:EGLD"
+                ],
+                "gasLimit": "20,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

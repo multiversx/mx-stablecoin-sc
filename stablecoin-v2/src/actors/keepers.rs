@@ -32,6 +32,10 @@ pub trait KeepersModule:
                 &collateral_value_in_dollars,
                 &collateral_precision,
             );
+            if pool_value_in_dollars == pool.stablecoin_amount {
+                return Ok(());
+            }
+
             let old_collateral_amount = pool.collateral_amount.clone();
 
             // collateral value increased, so we move the extra to reserves
@@ -78,16 +82,28 @@ pub trait KeepersModule:
     }
 
     #[endpoint(updateFeesPercentage)]
-    fn update_fees_percentage(&self, collateral_id: TokenIdentifier) {
+    fn update_fees_percentage(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
+
         let hedging_ratio = self.calculate_current_hedging_ratio(&collateral_id);
-        let mint_fee_percentage = self.calculate_mint_transaction_fees_percentage(&collateral_id);
-        let burn_fee_percentage = self.calculate_burn_transaction_fees_percentage(&collateral_id);
+        let min_max_fees_percentage = self.min_max_fees_percentage(&collateral_id).get();
+        let min_max_slippage_percentage = self.min_max_slippage_percentage(&collateral_id).get();
+
+        let mint_fee_percentage = self.calculate_mint_transaction_fees_percentage(
+            &hedging_ratio,
+            min_max_fees_percentage.clone(),
+        );
+        let burn_fee_percentage = self
+            .calculate_burn_transaction_fees_percentage(&hedging_ratio, min_max_fees_percentage);
+        let slippage_percentage =
+            self.calculate_slippage_percentage(&hedging_ratio, min_max_slippage_percentage);
 
         self.fees_updated_event(
             &collateral_id,
             &hedging_ratio,
             &mint_fee_percentage,
             &burn_fee_percentage,
+            &slippage_percentage,
         );
 
         self.current_fee_configuration(&collateral_id)
@@ -95,14 +111,19 @@ pub trait KeepersModule:
                 hedging_ratio,
                 mint_fee_percentage,
                 burn_fee_percentage,
+                slippage_percentage,
             });
+
+        Ok(())
     }
 
     #[endpoint(splitFees)]
-    fn split_fees(&self, collateral_id: TokenIdentifier) {
+    fn split_fees(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
+
         let accumulated_fees = self.accumulated_tx_fees(&collateral_id).get();
         if accumulated_fees == 0u32 {
-            return;
+            return Ok(());
         }
 
         let liq_provider_fee_reward_percentage = self
@@ -122,23 +143,29 @@ pub trait KeepersModule:
         self.accumulated_tx_fees(&collateral_id).clear();
 
         self.fees_split_event(&collateral_id, &liq_provider_reward, &leftover);
+
+        Ok(())
     }
 
     #[endpoint(lendReserves)]
     fn lend_reserves(&self, collateral_id: TokenIdentifier) -> SCResult<AsyncCall> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
         self.lend(collateral_id)
     }
 
     #[endpoint(withdrawLendedReserves)]
     fn withdraw_lended_reserves(&self, collateral_id: TokenIdentifier) -> SCResult<AsyncCall> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
         self.withdraw(collateral_id)
     }
 
     #[endpoint(splitLendRewards)]
-    fn split_lend_rewards(&self, collateral_id: TokenIdentifier) {
+    fn split_lend_rewards(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
+
         let accumulated_rewards = self.accumulated_lend_rewards(&collateral_id).get();
         if accumulated_rewards == 0u32 {
-            return;
+            return Ok(());
         }
 
         let liq_provider_lend_reward_percentage = self
@@ -159,6 +186,8 @@ pub trait KeepersModule:
         self.accumulated_lend_rewards(&collateral_id).clear();
 
         self.lend_rewards_split_event(&collateral_id, &liq_provider_reward, &leftover);
+
+        Ok(())
     }
 
     #[endpoint(forceCloseHedgingPosition)]

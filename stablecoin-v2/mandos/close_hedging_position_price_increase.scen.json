@@ -1,6 +1,14 @@
 {
     "name": "close hedging position after price increase",
+    "gasSchedule": "v4",
     "steps": [
-        
+        {
+            "step": "externalSteps",
+            "path": "open_hedging_position.scen.json"
+        },
+        {
+            "step": "externalSteps",
+            "path": "../../price-aggregator/mandos/oracle_price_increase.json"
+        }
     ]
 }

@@ -116,7 +116,7 @@ pub trait FeesModule:
     fn calculate_slippage_percentage(
         &self,
         current_hedging_ratio: &BigUint,
-        slippage_percentage: MinMaxPair<Self::Api>
+        slippage_percentage: MinMaxPair<Self::Api>,
     ) -> BigUint {
         let one = BigUint::from(ONE);
 

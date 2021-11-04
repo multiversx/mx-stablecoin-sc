@@ -9,6 +9,67 @@
         {
             "step": "externalSteps",
             "path": "../../price-aggregator/mandos/oracle_price_increase.json"
+        },
+        {
+            "step": "scCall",
+            "txId": "close-hedging-position-too-early",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:HEDGE-abcdef",
+                    "nonce": "1",
+                    "value": "1"
+                },
+                "function": "closeHedgingPosition",
+                "arguments": [
+                    "100,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Trying to close too early",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "setState",
+            "currentBlockInfo": {
+                "blockTimestamp": "4,000"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "close-hedging-position-ok",
+            "comment": "the last out result is the liq token ID from SFT create",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:HEDGE-abcdef",
+                    "nonce": "1",
+                    "value": "1"
+                },
+                "function": "closeHedgingPosition",
+                "arguments": [
+                    "100,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*", "1"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
         }
     ]
 }

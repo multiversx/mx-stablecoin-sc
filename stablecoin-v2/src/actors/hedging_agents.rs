@@ -59,9 +59,9 @@ pub trait HedgingAgentsModule:
         );
 
         let mut pool = self.get_pool(&payment_token);
-        let target_hedge_amount = self.calculate_target_hedge_amount(&pool.collateral_amount);
+        let target_hedge_amount = self.calculate_target_hedge_amount(&pool.stablecoin_amount);
         require!(
-            pool.total_collateral_covered <= target_hedge_amount,
+            pool.total_covered_value_in_stablecoin <= target_hedge_amount,
             "Over target hedge amount, no new positions may be opened"
         );
 
@@ -69,10 +69,6 @@ pub trait HedgingAgentsModule:
         require!(
             pool.total_collateral_covered <= pool.collateral_amount,
             "Trying to cover too much collateral"
-        );
-        require!(
-            pool.total_collateral_covered <= target_hedge_amount,
-            "Position would go over target hedge amount"
         );
 
         let collateral_precision = self.get_collateral_precision(&payment_token);
@@ -82,6 +78,10 @@ pub trait HedgingAgentsModule:
             &collateral_precision,
         );
         pool.total_covered_value_in_stablecoin += amount_to_cover_in_stablecoin;
+        require!(
+            pool.total_covered_value_in_stablecoin <= target_hedge_amount,
+            "Position would go over target hedge amount"
+        );
 
         let transaction_fees_percentage =
             self.get_hedging_position_open_transaction_fees_percentage(&payment_token);

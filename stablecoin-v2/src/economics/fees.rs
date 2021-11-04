@@ -75,13 +75,12 @@ pub trait FeesModule:
         current_hedging_ratio: &BigUint,
         fees_percentage: MinMaxPair<Self::Api>,
     ) -> BigUint {
-        let target_hedging_ratio = self.target_hedging_ratio().get();
         let one = BigUint::from(ONE);
 
         if current_hedging_ratio == &0 {
             return fees_percentage.max;
         }
-        if current_hedging_ratio >= &target_hedging_ratio {
+        if current_hedging_ratio >= &one {
             return fees_percentage.min;
         }
 
@@ -97,13 +96,12 @@ pub trait FeesModule:
         current_hedging_ratio: &BigUint,
         fees_percentage: MinMaxPair<Self::Api>,
     ) -> BigUint {
-        let target_hedging_ratio = self.target_hedging_ratio().get();
         let one = BigUint::from(ONE);
 
         if current_hedging_ratio == &0 {
             return fees_percentage.min;
         }
-        if current_hedging_ratio >= &target_hedging_ratio {
+        if current_hedging_ratio >= &one {
             return fees_percentage.max;
         }
 
@@ -133,18 +131,18 @@ pub trait FeesModule:
 
     fn calculate_current_hedging_ratio(&self, collateral_id: &TokenIdentifier) -> BigUint {
         let pool = self.get_pool(collateral_id);
-        let target_hedge_amount = self.calculate_target_hedge_amount(&pool.collateral_amount);
+        let target_hedge_amount = self.calculate_target_hedge_amount(&pool.stablecoin_amount);
         self.calculate_ratio(
             &pool.total_covered_value_in_stablecoin,
             &target_hedge_amount,
         )
     }
 
-    fn calculate_target_hedge_amount(&self, collateral_amount: &BigUint) -> BigUint {
+    fn calculate_target_hedge_amount(&self, stablecoin_amount: &BigUint) -> BigUint {
         let target_hedging_ratio = self.target_hedging_ratio().get();
         self.multiply(
             &target_hedging_ratio,
-            collateral_amount,
+            stablecoin_amount,
             &BigUint::from(ONE),
         )
     }

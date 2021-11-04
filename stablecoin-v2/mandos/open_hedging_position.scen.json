@@ -116,7 +116,7 @@
             },
             "expect": {
                 "out": [
-                    "*", "*", "*", "*", "*", "*"
+                    "*", "*", "*", "*", "*", "1"
                 ],
                 "status": "0",
                 "message": "",
@@ -176,6 +176,7 @@
         {
             "step": "scCall",
             "txId": "keeper-update-fees",
+            "comment": "Target hedge amount = 0.9 * $496  = $446.4. Hedging ratio = $420 / $446.4 = 0.9408602. Mint percentage fees = 0.4 - (0.4 - 0.2) * hedging_ratio = 0.4 - 0.2 * 0.9408602 = 0.4 - 0.1881720 = 0.2118280%. Burn percentage fees: 0.2 + (0.4 - 0.2) * hedging_ratio = 0.2 + 0.2 * 0.9408602 = 0.3881720%. Slippage percentage fees: 0.5 - (0.5 - 0.0) * hedging_ratio = 0.5 - 0.5 * 0.9408602 = 0.0295699%",
             "tx": {
                 "from": "address:keeper",
                 "to": "sc:stablecoin",
@@ -192,6 +193,45 @@
                 "message": "",
                 "gas": "*",
                 "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "8,010,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,960,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:2,991,600,000,000,000,000",
+                            "4-total_collateral_covered": "biguint:4,200,000,000,000,000,000",
+                            "5-total_covered_value_in_stablecoin": "biguint:420,000,000"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "58,400,000,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:9,408,602",
+                            "2-mint_fee_percentage": "biguint:2,118,280",
+                            "3-burn_fee_percentage": "biguint:3,881,720",
+                            "4-slippage_percentage": "biguint:295,699"
+                        },
+
+                        "str:poolForCollateral|nested:str:WETH-abcdef": {
+                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
+                            "2-stablecoin_amount": "biguint:9,460,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
             }
         }
     ]

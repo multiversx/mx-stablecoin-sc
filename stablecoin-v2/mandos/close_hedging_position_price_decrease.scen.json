@@ -1,5 +1,5 @@
 {
-    "name": "close hedging position after price increase",
+    "name": "close hedging position after price decrease",
     "gasSchedule": "v4",
     "steps": [
         {
@@ -8,12 +8,12 @@
         },
         {
             "step": "externalSteps",
-            "path": "../../price-aggregator/mandos/oracle_price_increase.json"
+            "path": "../../price-aggregator/mandos/oracle_price_decrease.json"
         },
         {
             "step": "scCall",
             "txId": "keeper-rebalance-pool",
-            "comment": "New EGLD value = $110 => new pool value = 110 * 4.96 = $545.6. Current pool value = $496 => $49.6 extra stablecoins, so we move $49.6 worth of EGLD in the reserves => 0.4509090909 EGLD. New collateral amount in pool = 4.96 - 0.4509090909 = 4.5090909091 EGLD",
+            "comment": "New EGLD value = $90 => new pool value = 90 * 4.96 = $446.4. Current pool value = $496 => $49.6 extra stablecoins over collateral value, so we move $49.6 worth of EGLD from the  reserves to the pool => 0.55111111111 EGLD. New collateral amount in pool = 4.96 + 0.55111111111 = 5.51111111111 EGLD",
             "tx": {
                 "from": "address:keeper",
                 "to": "sc:stablecoin",
@@ -43,9 +43,9 @@
                     "esdt": "*",
                     "storage": {
                         "str:poolForCollateral|nested:str:EGLD": {
-                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
                             "2-stablecoin_amount": "biguint:496,000,000",
-                            "3-collateral_reserves": "biguint:3,442,509,090,909,090,909",
+                            "3-collateral_reserves": "biguint:2,440,488,888,888,888,889",
                             "4-total_collateral_covered": "biguint:4,200,000,000,000,000,000",
                             "5-total_covered_value_in_stablecoin": "biguint:420,000,000"
                         },
@@ -65,32 +65,6 @@
             }
         },
         {
-            "step": "scCall",
-            "txId": "close-hedging-position-too-early",
-            "tx": {
-                "from": "address:hedger1",
-                "to": "sc:stablecoin",
-                "esdt": {
-                    "tokenIdentifier": "str:HEDGE-abcdef",
-                    "nonce": "1",
-                    "value": "1"
-                },
-                "function": "closeHedgingPosition",
-                "arguments": [
-                    "100,000,000"
-                ],
-                "gasLimit": "40,000,000",
-                "gasPrice": "0"
-            },
-            "expect": {
-                "out": [],
-                "status": "4",
-                "message": "str:Trying to close too early",
-                "gas": "*",
-                "refund": "*"
-            }
-        },
-        {
             "step": "setState",
             "currentBlockInfo": {
                 "blockTimestamp": "4,000"
@@ -99,7 +73,7 @@
         {
             "step": "scCall",
             "txId": "close-hedging-position-ok",
-            "comment": "withdraw_amount = deposit_amount + covered_amount * (1 - initial_oracle / current_oracle) = 2.9916 + 4.2 * (1 - 100/110) ~= 3.3734 EGLD base withdraw amount. Fees 0.2118280% => withdraw ~= 3.36625 EGLD",
+            "comment": "withdraw_amount = deposit_amount + covered_amount * (1 - initial_oracle / current_oracle) = 2.9916 + 4.2 * (1 - 100/90) ~= 2.52493 EGLD base withdraw amount. Fees 0.2118280% => withdraw ~= 2.51958 EGLD. This is over the pool's reserves, so the caller will receive LIQ tokens for the leftover",
             "tx": {
                 "from": "address:hedger1",
                 "to": "sc:stablecoin",
@@ -110,14 +84,14 @@
                 },
                 "function": "closeHedgingPosition",
                 "arguments": [
-                    "100,000,000"
+                    "80,000,000"
                 ],
                 "gasLimit": "40,000,000",
                 "gasPrice": "0"
             },
             "expect": {
                 "out": [
-                    "*", "*", "*", "*", "*"
+                    "*", "*", "*", "*", "*", "1"
                 ],
                 "status": "0",
                 "message": "",
@@ -130,18 +104,29 @@
             "accounts": {
                 "address:hedger1": {
                     "nonce": "*",
-                    "balance": "100,364,521,444,000,000,000",
+                    "balance": "99,431,592,112,888,888,889",
+                    "esdt": {
+                        "str:LIQ-abcdef": {
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "84,444,491,111,111,111",
+                                    "creator": "*"
+                                }
+                            ]
+                        }
+                    },
                     "storage": {}
                 },
                 "sc:stablecoin": {
                     "nonce": "0",
-                    "balance": "4,645,478,556,000,000,000",
+                    "balance": "5,578,407,887,111,111,111",
                     "esdt": "*",
                     "storage": {
                         "str:poolForCollateral|nested:str:EGLD": {
-                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
                             "2-stablecoin_amount": "biguint:496,000,000",
-                            "3-collateral_reserves": "biguint:69,090,870,909,090,909",
+                            "3-collateral_reserves": "biguint:0",
                             "4-total_collateral_covered": "biguint:0",
                             "5-total_covered_value_in_stablecoin": "biguint:0"
                         },
@@ -187,20 +172,15 @@
         {
             "step": "checkState",
             "accounts": {
-                "address:hedger1": {
-                    "nonce": "*",
-                    "balance": "100,364,521,444,000,000,000",
-                    "storage": {}
-                },
                 "sc:stablecoin": {
                     "nonce": "0",
-                    "balance": "4,645,478,556,000,000,000",
+                    "balance": "5,578,407,887,111,111,111",
                     "esdt": "*",
                     "storage": {
                         "str:poolForCollateral|nested:str:EGLD": {
-                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
                             "2-stablecoin_amount": "biguint:496,000,000",
-                            "3-collateral_reserves": "biguint:69,090,870,909,090,909",
+                            "3-collateral_reserves": "biguint:0",
                             "4-total_collateral_covered": "biguint:0",
                             "5-total_covered_value_in_stablecoin": "biguint:0"
                         },

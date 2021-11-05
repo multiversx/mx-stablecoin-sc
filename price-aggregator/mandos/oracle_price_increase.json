@@ -1,0 +1,53 @@
+{
+    "name": "set EGLD price to $110 and ETH price to $1100",
+    "steps": [
+        {
+            "step": "scCall",
+            "comment": "1 EGLD = $100",
+            "txId": "oracle-submit-1",
+            "tx": {
+                "from": "address:oracle",
+                "to": "sc:price_aggregator",
+                "value": "0",
+                "function": "submit",
+                "arguments": [
+                    "str:EGLD",
+                    "str:USD",
+                    "110,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "comment": "1 ETH = $1000",
+            "txId": "oracle-submit-2",
+            "tx": {
+                "from": "address:oracle",
+                "to": "sc:price_aggregator",
+                "value": "0",
+                "function": "submit",
+                "arguments": [
+                    "str:ETH",
+                    "str:USD",
+                    "1,100,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

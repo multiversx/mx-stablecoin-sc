@@ -1,5 +1,3 @@
-use crate::math::ONE;
-
 elrond_wasm::imports!();
 
 #[elrond_wasm::module]
@@ -65,7 +63,7 @@ pub trait LiquidityProvidersModule:
         let amount_in_collateral =
             self.liq_tokens_to_collateral(&collateral_id, &payment_amount, &collateral_precision);
 
-        let slippage_percentage = self.calculate_slippage_percentage(&collateral_id);
+        let slippage_percentage = self.get_slippage_percenage(&collateral_id);
         let slippage_amount_in_collateral =
             self.calculate_percentage_of(&slippage_percentage, &amount_in_collateral);
 
@@ -115,30 +113,6 @@ pub trait LiquidityProvidersModule:
         let collateral_precision = self.get_collateral_precision(&collateral_id);
         self.get_liq_token_value_in_collateral(&collateral_id, &collateral_precision)
     }
-
-    #[view(getSlippagePercentage)]
-    fn calculate_slippage_percentage(&self, collateral_id: &TokenIdentifier) -> BigUint {
-        let hedging_ratio = self.get_current_hedging_ratio(collateral_id);
-        let one = BigUint::from(ONE);
-
-        // no slippage if all collateral is covered
-        if hedging_ratio >= one {
-            return BigUint::zero();
-        }
-
-        let (min_slippage_percentage, max_slippage_percentage) =
-            self.min_max_slippage_percentage(collateral_id).get();
-        let percentage_diff = &max_slippage_percentage - &min_slippage_percentage;
-
-        // min + (max - min) * hedging_ratio
-        min_slippage_percentage + self.multiply(&hedging_ratio, &percentage_diff, &one)
-    }
-
-    #[storage_mapper("minMaxSlippagePercentage")]
-    fn min_max_slippage_percentage(
-        &self,
-        collateral_id: &TokenIdentifier,
-    ) -> SingleValueMapper<(BigUint, BigUint)>;
 
     #[storage_mapper("liquidityProviderFeeRewardPercentage")]
     fn liq_provider_fee_reward_percentage(

@@ -1,0 +1,205 @@
+{
+    "name": "close hedging position after price decrease",
+    "gasSchedule": "v4",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "open_hedging_position.scen.json"
+        },
+        {
+            "step": "externalSteps",
+            "path": "../../price-aggregator/mandos/oracle_price_decrease.json"
+        },
+        {
+            "step": "scCall",
+            "txId": "keeper-rebalance-pool",
+            "comment": "New EGLD value = $90 => new pool value = 90 * 4.96 = $446.4. Current pool value = $496 => $49.6 extra stablecoins over collateral value, so we move $49.6 worth of EGLD from the  reserves to the pool => 0.55111111111 EGLD. New collateral amount in pool = 4.96 + 0.55111111111 = 5.51111111111 EGLD",
+            "tx": {
+                "from": "address:keeper",
+                "to": "sc:stablecoin",
+                "function": "rebalancePool",
+                "arguments": [
+                    "str:EGLD"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "8,010,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:2,440,488,888,888,888,889",
+                            "4-total_collateral_covered": "biguint:4,200,000,000,000,000,000",
+                            "5-total_covered_value_in_stablecoin": "biguint:420,000,000"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "58,400,000,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:9,408,602",
+                            "2-mint_fee_percentage": "biguint:2,118,280",
+                            "3-burn_fee_percentage": "biguint:3,881,720",
+                            "4-slippage_percentage": "biguint:295,699"
+                        },
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "setState",
+            "currentBlockInfo": {
+                "blockTimestamp": "4,000"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "close-hedging-position-ok",
+            "comment": "withdraw_amount = deposit_amount + covered_amount * (1 - initial_oracle / current_oracle) = 2.9916 + 4.2 * (1 - 100/90) ~= 2.52493 EGLD base withdraw amount. Fees 0.2118280% => withdraw ~= 2.51958 EGLD. This is over the pool's reserves, so the caller will receive LIQ tokens for the leftover",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:HEDGE-abcdef",
+                    "nonce": "1",
+                    "value": "1"
+                },
+                "function": "closeHedgingPosition",
+                "arguments": [
+                    "80,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*", "1"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:hedger1": {
+                    "nonce": "*",
+                    "balance": "99,431,592,112,888,888,889",
+                    "esdt": {
+                        "str:LIQ-abcdef": {
+                            "instances": [
+                                {
+                                    "nonce": "1",
+                                    "balance": "84,444,491,111,111,111",
+                                    "creator": "*"
+                                }
+                            ]
+                        }
+                    },
+                    "storage": {}
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "5,578,407,887,111,111,111",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "67,296,776,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:9,408,602",
+                            "2-mint_fee_percentage": "biguint:2,118,280",
+                            "3-burn_fee_percentage": "biguint:3,881,720",
+                            "4-slippage_percentage": "biguint:295,699"
+                        },
+
+                        "str:hedgingPosition|u64:1": "",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "keeper-update-fees",
+            "comment": "Fees are reset to default, since no collateral is covered",
+            "tx": {
+                "from": "address:keeper",
+                "to": "sc:stablecoin",
+                "function": "updateFeesPercentage",
+                "arguments": [
+                    "str:EGLD"
+                ],
+                "gasLimit": "20,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "5,578,407,887,111,111,111",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:5,511,111,111,111,111,111",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:0",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "67,296,776,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:0",
+                            "2-mint_fee_percentage": "biguint:4,000,000",
+                            "3-burn_fee_percentage": "biguint:2,000,000",
+                            "4-slippage_percentage": "biguint:5,000,000"
+                        },
+
+                        "str:hedgingPosition|u64:1": "",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        }
+    ]
+}

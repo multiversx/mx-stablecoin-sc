@@ -101,16 +101,24 @@ pub trait LiquidityTokenModule:
         self.send().esdt_local_burn(&token_id, sft_nonce, amount);
     }
 
+    // if no liq tokens exist, the value is 1:1
     fn get_liq_token_value_in_collateral(
         &self,
         collateral_id: &TokenIdentifier,
         collateral_precision: &BigUint,
     ) -> BigUint {
         let sft_nonce = self.liq_sft_nonce_for_collateral(collateral_id).get();
-        let collateral_amount = self.collateral_amount_for_liq_token(sft_nonce).get();
-        let liq_tokens_amount = self.liq_token_amount_in_circulation(sft_nonce).get();
+        if sft_nonce == 0 {
+            return collateral_precision.clone();
+        }
 
-        self.divide(&liq_tokens_amount, &collateral_amount, collateral_precision)
+        let liq_tokens_amount = self.liq_token_amount_in_circulation(sft_nonce).get();
+        if liq_tokens_amount == 0 {
+            return collateral_precision.clone();
+        }
+
+        let collateral_amount = self.collateral_amount_for_liq_token(sft_nonce).get();
+        self.divide(&collateral_amount, &liq_tokens_amount, collateral_precision)
     }
 
     fn collateral_to_liq_tokens(

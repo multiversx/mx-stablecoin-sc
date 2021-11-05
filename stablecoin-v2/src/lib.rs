@@ -93,6 +93,10 @@ pub trait StablecoinV2:
         max_slippage_percentage: BigUint,
     ) -> SCResult<()> {
         require!(
+            collateral_id.is_egld() || collateral_id.is_valid_esdt_identifier(),
+            "Invalid collateral ID"
+        );
+        require!(
             min_fees_percentage <= max_fees_percentage
                 && max_fees_percentage < math::PERCENTAGE_PRECISION,
             "Invalid fees percentages"
@@ -109,7 +113,10 @@ pub trait StablecoinV2:
             .set(&collateral_num_decimals);
         self.max_leverage(&collateral_id).set(&max_leverage);
         self.min_max_fees_percentage(&collateral_id)
-            .set(&(min_fees_percentage.clone(), max_fees_percentage.clone()));
+            .set(&fees::MinMaxPair {
+                min: min_fees_percentage.clone(),
+                max: max_fees_percentage.clone(),
+            });
         self.hedging_maintenance_ratio(&collateral_id)
             .set(&hedging_maintenance_ratio);
 
@@ -121,10 +128,11 @@ pub trait StablecoinV2:
             .set(&liq_provider_lend_reward_percentage);
         self.liq_provider_fee_reward_percentage(&collateral_id)
             .set(&liq_provider_fee_reward_percentage);
-        self.min_max_slippage_percentage(&collateral_id).set(&(
-            min_slippage_percentage.clone(),
-            max_slippage_percentage.clone(),
-        ));
+        self.min_max_slippage_percentage(&collateral_id)
+            .set(&fees::MinMaxPair {
+                min: min_slippage_percentage.clone(),
+                max: max_slippage_percentage.clone(),
+            });
         self.collateral_whitelisted(&collateral_id).set(&true);
 
         self.collateral_added_to_whitelist_event(
@@ -151,6 +159,7 @@ pub trait StablecoinV2:
                 hedging_ratio: BigUint::zero(),
                 mint_fee_percentage: max_fees_percentage,
                 burn_fee_percentage: min_fees_percentage,
+                slippage_percentage: max_slippage_percentage,
             },
         );
 
@@ -159,7 +168,9 @@ pub trait StablecoinV2:
 
     #[only_owner]
     #[endpoint(removeCollateralFromWhitelist)]
-    fn remove_collateral_from_whitelist(&self, collateral_id: TokenIdentifier) {
+    fn remove_collateral_from_whitelist(&self, collateral_id: TokenIdentifier) -> SCResult<()> {
+        self.require_collateral_in_whitelist(&collateral_id)?;
+
         self.collateral_ticker(&collateral_id).clear();
         self.collateral_num_decimals(&collateral_id).clear();
         self.max_leverage(&collateral_id).clear();
@@ -177,5 +188,7 @@ pub trait StablecoinV2:
         self.collateral_whitelisted(&collateral_id).clear();
 
         self.collateral_removed_from_whitelist_event(&collateral_id);
+
+        Ok(())
     }
 }

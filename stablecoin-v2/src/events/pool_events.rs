@@ -37,10 +37,9 @@ pub trait PoolEventsModule {
     fn pool_rebalanced_event(
         &self,
         #[indexed] collateral_id: &TokenIdentifier,
+        #[indexed] stablecoin_amount: &BigUint,
         #[indexed] old_collateral_amount: &BigUint,
-        #[indexed] old_stablecoin_amount: &BigUint,
         #[indexed] new_collateral_amount: &BigUint,
-        #[indexed] new_stablecoin_amount: &BigUint,
     );
 
     #[event("feesUpdated")]
@@ -50,6 +49,7 @@ pub trait PoolEventsModule {
         #[indexed] hedging_ratio: &BigUint,
         #[indexed] mint_fee_percentage: &BigUint,
         #[indexed] burn_fee_percentage: &BigUint,
+        #[indexed] slippage_percentage: &BigUint,
     );
 
     #[event("feesSplit")]
@@ -59,6 +59,4 @@ pub trait PoolEventsModule {
         #[indexed] liq_providers_amount: &BigUint,
         #[indexed] reserves_amount: &BigUint,
     );
-
-    // add/remove from whitelist
 }

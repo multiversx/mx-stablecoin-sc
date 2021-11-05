@@ -1,0 +1,225 @@
+{
+    "name": "close hedging position after price increase",
+    "gasSchedule": "v4",
+    "steps": [
+        {
+            "step": "externalSteps",
+            "path": "open_hedging_position.scen.json"
+        },
+        {
+            "step": "externalSteps",
+            "path": "../../price-aggregator/mandos/oracle_price_increase.json"
+        },
+        {
+            "step": "scCall",
+            "txId": "keeper-rebalance-pool",
+            "comment": "New EGLD value = $110 => new pool value = 110 * 4.96 = $545.6. Current pool value = $496 => $49.6 extra stablecoins, so we move $49.6 worth of EGLD in the reserves => 0.4509090909 EGLD. New collateral amount in pool = 4.96 - 0.4509090909 = 4.5090909091 EGLD",
+            "tx": {
+                "from": "address:keeper",
+                "to": "sc:stablecoin",
+                "function": "rebalancePool",
+                "arguments": [
+                    "str:EGLD"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "8,010,000,000,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:3,442,509,090,909,090,909",
+                            "4-total_collateral_covered": "biguint:4,200,000,000,000,000,000",
+                            "5-total_covered_value_in_stablecoin": "biguint:420,000,000"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "58,400,000,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:9,408,602",
+                            "2-mint_fee_percentage": "biguint:2,118,280",
+                            "3-burn_fee_percentage": "biguint:3,881,720",
+                            "4-slippage_percentage": "biguint:295,699"
+                        },
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "close-hedging-position-too-early",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:HEDGE-abcdef",
+                    "nonce": "1",
+                    "value": "1"
+                },
+                "function": "closeHedgingPosition",
+                "arguments": [
+                    "100,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "4",
+                "message": "str:Trying to close too early",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "setState",
+            "currentBlockInfo": {
+                "blockTimestamp": "4,000"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "close-hedging-position-ok",
+            "comment": "withdraw_amount = deposit_amount + covered_amount * (1 - initial_oracle / current_oracle) = 2.9916 + 4.2 * (1 - 100/110) ~= 3.3734 EGLD base withdraw amount. Fees 0.2118280% => withdraw ~= 3.36625 EGLD",
+            "tx": {
+                "from": "address:hedger1",
+                "to": "sc:stablecoin",
+                "esdt": {
+                    "tokenIdentifier": "str:HEDGE-abcdef",
+                    "nonce": "1",
+                    "value": "1"
+                },
+                "function": "closeHedgingPosition",
+                "arguments": [
+                    "100,000,000"
+                ],
+                "gasLimit": "40,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [
+                    "*", "*", "*", "*", "*"
+                ],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:hedger1": {
+                    "nonce": "*",
+                    "balance": "100,364,521,444,000,000,000",
+                    "storage": {}
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "4,645,478,556,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:69,090,870,909,090,909",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "67,296,776,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:9,408,602",
+                            "2-mint_fee_percentage": "biguint:2,118,280",
+                            "3-burn_fee_percentage": "biguint:3,881,720",
+                            "4-slippage_percentage": "biguint:295,699"
+                        },
+
+                        "str:hedgingPosition|u64:1": "",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "keeper-update-fees",
+            "comment": "Fees are reset to default, since no collateral is covered",
+            "tx": {
+                "from": "address:keeper",
+                "to": "sc:stablecoin",
+                "function": "updateFeesPercentage",
+                "arguments": [
+                    "str:EGLD"
+                ],
+                "gasLimit": "20,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "checkState",
+            "accounts": {
+                "address:hedger1": {
+                    "nonce": "*",
+                    "balance": "100,364,521,444,000,000,000",
+                    "storage": {}
+                },
+                "sc:stablecoin": {
+                    "nonce": "0",
+                    "balance": "4,645,478,556,000,000,000",
+                    "esdt": "*",
+                    "storage": {
+                        "str:poolForCollateral|nested:str:EGLD": {
+                            "1-collateral_amount": "biguint:4,509,090,909,090,909,091",
+                            "2-stablecoin_amount": "biguint:496,000,000",
+                            "3-collateral_reserves": "biguint:69,090,870,909,090,909",
+                            "4-total_collateral_covered": "biguint:0",
+                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        },
+                        "str:accumulatedTxFees|nested:str:EGLD": "67,296,776,000,000,000",
+                        "str:currentFeeConfiguration|nested:str:EGLD": {
+                            "1-hedging_ratio": "biguint:0",
+                            "2-mint_fee_percentage": "biguint:4,000,000",
+                            "3-burn_fee_percentage": "biguint:2,000,000",
+                            "4-slippage_percentage": "biguint:5,000,000"
+                        },
+
+                        "str:hedgingPosition|u64:1": "",
+
+                        "+": ""
+                    },
+                    "code": "*"
+                },
+                "+": {}
+            }
+        }
+    ]
+}

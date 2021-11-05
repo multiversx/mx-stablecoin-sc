@@ -157,14 +157,14 @@
                         },
                         "str:accumulatedTxFees|nested:str:EGLD": "58,400,000,000,000,000",
 
-                        "str:poolForCollateral|nested:str:WETH-abcdef": {
-                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
-                            "2-stablecoin_amount": "biguint:9,460,000,000",
-                            "3-collateral_reserves": "biguint:0",
-                            "4-total_collateral_covered": "biguint:0",
-                            "5-total_covered_value_in_stablecoin": "biguint:0"
+                        "str:hedgingPosition|u64:1": {
+                            "1-collateral_id": "nested:str:EGLD",
+                            "2-deposit_amount": "biguint:2,991,600,000,000,000,000",
+                            "3-covered_amount": "biguint:4,200,000,000,000,000,000",
+                            "4-oracle_value_at_deposit_time": "biguint:100,000,000",
+                            "5-creation_timestamp": "u64:0",
+                            "6-withdraw_amount_after_force_close": "u8:0"
                         },
-                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
 
                         "+": ""
                     },
@@ -217,15 +217,6 @@
                             "3-burn_fee_percentage": "biguint:3,881,720",
                             "4-slippage_percentage": "biguint:295,699"
                         },
-
-                        "str:poolForCollateral|nested:str:WETH-abcdef": {
-                            "1-collateral_amount": "biguint:9,460,000,000,000,000,000",
-                            "2-stablecoin_amount": "biguint:9,460,000,000",
-                            "3-collateral_reserves": "biguint:0",
-                            "4-total_collateral_covered": "biguint:0",
-                            "5-total_covered_value_in_stablecoin": "biguint:0"
-                        },
-                        "str:accumulatedTxFees|nested:str:WETH-abcdef": "41,000,000,000,000,000",
 
                         "+": ""
                     },

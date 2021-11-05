@@ -170,7 +170,7 @@ pub trait HedgingAgentsModule:
         self.send_hedging_token(&caller, nft_nonce);
 
         self.hedging_position_added_margin_event(nft_nonce, &collateral_transfer.amount);
-        
+
         Ok(())
     }
 
@@ -333,6 +333,9 @@ pub trait HedgingAgentsModule:
 
         self.accumulated_tx_fees(&hedging_position.collateral_id)
             .update(|accumulated_fees| *accumulated_fees += &withdraw_amount_fees_pair.fees_amount);
+        self.update_pool(&hedging_position.collateral_id, |pool| {
+            pool.collateral_reserves -= &withdraw_amount_fees_pair.fees_amount
+        });
 
         Ok(withdraw_amount_fees_pair.withdraw_amount)
     }

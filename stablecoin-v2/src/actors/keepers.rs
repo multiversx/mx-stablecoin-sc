@@ -47,6 +47,7 @@ pub trait KeepersModule:
                     &collateral_precision,
                 );
 
+                pool.collateral_amount -= &extra_collateral_amount;
                 pool.collateral_reserves += extra_collateral_amount;
             }
             // collateral value decreased, so we take collateral from the reserves to rebalance the pool
@@ -64,18 +65,16 @@ pub trait KeepersModule:
                     "Not enough reserves to rebalance pool"
                 );
 
+                pool.collateral_amount += &missing_collateral_amount;
                 pool.collateral_reserves -= missing_collateral_amount;
             }
 
             self.pool_rebalanced_event(
                 &collateral_id,
-                &old_collateral_amount,
                 &pool.stablecoin_amount,
+                &old_collateral_amount,
                 &pool.collateral_amount,
-                &pool_value_in_dollars,
             );
-
-            pool.stablecoin_amount = pool_value_in_dollars;
 
             Ok(())
         })

@@ -4,4 +4,6 @@ members = [
     "lock-rewards",
     "stablecoin-v2",
     "stablecoin-v2/abi",
+    "stablecoin-v3",
+    "stablecoin-v3/meta",
 ]

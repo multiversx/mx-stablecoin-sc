@@ -1,0 +1,27 @@
+[package]
+name = "stablecoin-v3"
+version = "0.0.0"
+authors = [ "Sorin Petreasca <sorin.petreasca@elrond.com>",]
+edition = "2018"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies.elrond-wasm]
+version = "0.31"
+
+[dependencies.elrond-wasm-modules]
+version = "0.31"
+
+[dev-dependencies.elrond-wasm-debug]
+version = "0.31"
+
+[dev-dependencies]
+num-bigint = "0.4.2"
+num-traits = "0.2"
+hex = "0.4"
+
+[dev-dependencies.price-aggregator]
+git = "https://github.com/ElrondNetwork/sc-chainlink-rs"
+rev = "eac874a"

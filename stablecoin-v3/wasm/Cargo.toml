@@ -1,0 +1,29 @@
+[package]
+name = "stablecoin-v3-wasm"
+version = "0.0.0"
+authors = [ "Sorin Petreasca <sorin.petreasca@elrond.com>",]
+edition = "2018"
+publish = false
+
+[lib]
+crate-type = [ "cdylib",]
+
+[workspace]
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+
+[dependencies.stablecoin-v3]
+path = ".."
+
+[dependencies.elrond-wasm-node]
+version = "0.31.1"
+features = [ "vm-validate-token-identifier" ]
+
+[dependencies.elrond-wasm-output]
+version = "0.31.1"
+features = ["wasm-output-mode"]

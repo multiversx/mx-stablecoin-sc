@@ -61,32 +61,38 @@ pub trait StablecoinV3:
         collateral_token_id: TokenIdentifier,
         stablecoin_token_id: TokenIdentifier,
         spread_fee_min_percent: BigUint,
-    ) {
+    ) -> BigUint {
+        let (payment_amount, token_in) = self.call_value().payment_token_pair();
+        
         require!(collateral_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
         require!(stablecoin_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
         require!(
             collateral_token_id != stablecoin_token_id,
             ERROR_SAME_TOKENS
         );
-
-        let payment_amount = self.call_value().egld_value();
-        let caller = self.blockchain().get_caller();
-        let payment = self.mint_stablecoins(BigUint::from(1000u64));
-        let base_pool = &payment.amount * &payment.amount;
-        self.base_pool().update(|total| *total = base_pool);
-        self.collateral_token_supply()
-            .update(|total| *total += &payment_amount);
+        require!(token_in == collateral_token_id, ERROR_BAD_PAYMENT_TOKENS);
 
         self.spread_fee_min_percent().set(spread_fee_min_percent);
+        self.stablecoin().set_token_id(&stablecoin_token_id);
         self.collateral_token_id().set(&collateral_token_id);
         self.pool_delta().set(&BigUint::from(MEDIAN_POOL_DELTA));
 
-        let mut non_zero_payments = ManagedVec::new();
-        if payment.amount > BigUint::zero() {
-            non_zero_payments.push(payment)
+        let caller = self.blockchain().get_caller();
+        let collateral_price = self.get_exchange_rate(&collateral_token_id, &stablecoin_token_id);
+        let payment_value_denominated = &payment_amount * &collateral_price;
+        let user_payment = self.mint_stablecoins(payment_value_denominated.clone());
+        self.base_pool().update(|total| *total = payment_value_denominated.clone());
+        self.collateral_token_supply()
+            .update(|total| *total += &payment_amount);
+
+        let mut user_payments = ManagedVec::new();
+        if user_payment.amount > BigUint::zero() {
+            user_payments.push(user_payment)
         }
 
-        self.send().direct_multi(&caller, &non_zero_payments, &[]);
+        self.send().direct_multi(&caller, &user_payments, &[]);
+
+        payment_value_denominated
     }
 
     #[payable("*")]
@@ -232,8 +238,8 @@ pub trait StablecoinV3:
     fn get_exchange_rate(&self, from: &TokenIdentifier, to: &TokenIdentifier) -> BigUint {
         let price_aggregator_address = self.price_aggregator_address().get();
 
-        let from_ticker = self.token_ticker(from).get();
-        let to_ticker = self.token_ticker(to).get();
+        let from_ticker = b"EGLD"; //self.token_ticker(from).get();
+        let to_ticker = b"USD"; //self.token_ticker(to).get();
 
         let result: AggregatorResultAsMultiValue<Self::Api> = self
             .aggregator_proxy(price_aggregator_address)

@@ -1,21 +1,18 @@
-use std::convert::TryInto;
-
 use elrond_wasm::{
-    elrond_codec::Empty,
-    storage::mappers::StorageTokenWrapper,
     types::{Address, EsdtLocalRole, ManagedBuffer, ManagedVec, TokenIdentifier},
 };
 use elrond_wasm_debug::{
-    managed_address, managed_biguint, managed_buffer, managed_token_id, rust_biguint,
+    managed_address, managed_biguint, managed_buffer, rust_biguint,
     testing_framework::*, DebugApi,
 };
 use price_aggregator::PriceAggregator;
 use stablecoin_v3::config::ConfigModule;
 use stablecoin_v3::*;
 
-// pub static STABLECOIN_TOKEN: &[u8] = b"EUSD";
-pub static STABLECOIN_TOKEN_ID: &[u8] = b"STABLE-123456";
 pub static COLLATERAL_TOKEN_ID: &[u8] = b"COLLATERAL-123456";
+pub static STABLECOIN_TOKEN_ID: &[u8] = b"STABLE-123456";
+pub static COLLATERAL_TOKEN_TICKER: &[u8] = b"EGLD";
+pub static STABLECOIN_TOKEN_TICKER: &[u8] = b"USD";
 pub static ESDT_ROLES: &[EsdtLocalRole] = &[
     EsdtLocalRole::Mint,
     EsdtLocalRole::Burn,
@@ -24,7 +21,6 @@ pub static ESDT_ROLES: &[EsdtLocalRole] = &[
 
 pub const ISSUE_TOKEN_FEE: u64 = 50_000_000_000_000_000;
 pub const EGLD_DECIMALS: u64 = 1_000_000_000_000_000_000;
-pub const EUSD_DECIMALS: u64 = 10_000_000_000_000_000;
 
 pub struct StablecoinContractSetup<StablecoinContractObjBuilder>
 where
@@ -74,23 +70,39 @@ where
                 &sc_wrapper,
                 COLLATERAL_TOKEN_ID,
                 0,
-                &rust_biguint!(1000),
+                &rust_biguint!(10_000),
                 |sc| {
                     sc.deploy_stablecoin(
                         TokenIdentifier::from_esdt_bytes(COLLATERAL_TOKEN_ID),
                         TokenIdentifier::from_esdt_bytes(STABLECOIN_TOKEN_ID),
+                        ManagedBuffer::new_from_bytes(COLLATERAL_TOKEN_TICKER),
+                        ManagedBuffer::new_from_bytes(STABLECOIN_TOKEN_TICKER),
                         managed_biguint!(500u64),
                     );
                 },
             )
             .assert_ok();
 
-        // check Savings Account internal state
         b_mock
-            .execute_query(&sc_wrapper, |sc| {
-                assert_eq!(sc.stablecoin_supply().get(), managed_biguint!(100000));
+            .execute_tx(&owner_address, &sc_wrapper, &rust_zero, |sc| {
+                sc.resume();
             })
             .assert_ok();
+
+        // check internal state & balances
+        b_mock
+            .execute_query(&sc_wrapper, |sc| {
+                assert_eq!(sc.stablecoin_supply().get(), managed_biguint!(1_000_000));
+                assert_eq!(sc.collateral_supply().get(), managed_biguint!(10_000));
+                assert_eq!(sc.base_pool().get(), managed_biguint!(1_000_000))
+            })
+            .assert_ok();
+
+        b_mock.check_esdt_balance(
+            &owner_address,
+            STABLECOIN_TOKEN_ID,
+            &rust_biguint!(1_000_000),
+        );
 
         StablecoinContractSetup {
             b_mock,
@@ -127,9 +139,19 @@ where
         b_mock
             .execute_tx(&oracle, &price_aggregator_wrapper, &rust_zero, |sc| {
                 sc.submit(
-                    managed_buffer!(b"EGLD"),
-                    managed_buffer!(b"USD"),
+                    managed_buffer!(b"EGLD"), // managed_buffer!(COLLATERAL_TOKEN_ID),// managed_buffer!(b"EGLD"),
+                    managed_buffer!(b"USD"), // managed_buffer!(STABLECOIN_TOKEN_ID),// managed_buffer!(b"USD"),
                     managed_biguint!(100),
+                );
+            })
+            .assert_ok();
+
+        b_mock
+            .execute_tx(&oracle, &price_aggregator_wrapper, &rust_zero, |sc| {
+                sc.submit(
+                    managed_buffer!(b"USD"), // managed_buffer!(COLLATERAL_TOKEN_ID),// managed_buffer!(b"EGLD"),
+                    managed_buffer!(b"USD"), // managed_buffer!(STABLECOIN_TOKEN_ID),// managed_buffer!(b"USD"),
+                    managed_biguint!(1),
                 );
             })
             .assert_ok();

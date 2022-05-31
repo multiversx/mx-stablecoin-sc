@@ -78,9 +78,9 @@ pub trait ConfigModule {
     #[storage_mapper("collateral_token_id")]
     fn collateral_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
-    #[view(getCollateralTokenSupply)]
-    #[storage_mapper("collateral_token_supply")]
-    fn collateral_token_supply(&self) -> SingleValueMapper<BigUint>;
+    #[view(getCollateralSupply)]
+    #[storage_mapper("collateral_supply")]
+    fn collateral_supply(&self) -> SingleValueMapper<BigUint>;
 
     #[view(getStablecoinId)]
     #[storage_mapper("stablecoin_id")]

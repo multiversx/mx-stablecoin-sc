@@ -13,13 +13,15 @@ use crate::{
     aggregator_proxy::*,
     config::State,
     errors::{
-        ERROR_ACTIVE, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT, ERROR_SAME_TOKENS,
-        ERROR_SLIPPAGE_EXCEEDED, ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SWAP_NOT_ENABLED,
+        ERROR_ACTIVE, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT,
+        ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS, ERROR_SLIPPAGE_EXCEEDED,
+        ERROR_SWAP_NOT_ENABLED,
     },
     events::SwapEvent,
 };
 
 const MEDIAN_POOL_DELTA: u64 = 100_000_000;
+const PERCENTAGE: u64 = 100_000;
 
 #[elrond_wasm::contract]
 pub trait StablecoinV3:
@@ -27,7 +29,10 @@ pub trait StablecoinV3:
 {
     #[init]
     fn init(&self, price_aggregator_address: ManagedAddress) {
-        require!(!price_aggregator_address.is_zero(), ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS);
+        require!(
+            !price_aggregator_address.is_zero(),
+            ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS
+        );
         self.price_aggregator_address()
             .set(&price_aggregator_address);
         self.state().set(&State::Inactive);
@@ -60,10 +65,12 @@ pub trait StablecoinV3:
         &self,
         collateral_token_id: TokenIdentifier,
         stablecoin_token_id: TokenIdentifier,
+        collateral_token_ticker: ManagedBuffer,
+        stablecoin_token_ticker: ManagedBuffer,
         spread_fee_min_percent: BigUint,
     ) -> BigUint {
         let (payment_amount, token_in) = self.call_value().payment_token_pair();
-        
+
         require!(collateral_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
         require!(stablecoin_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
         require!(
@@ -75,14 +82,19 @@ pub trait StablecoinV3:
         self.spread_fee_min_percent().set(spread_fee_min_percent);
         self.stablecoin().set_token_id(&stablecoin_token_id);
         self.collateral_token_id().set(&collateral_token_id);
+        self.token_ticker(&collateral_token_id)
+            .set(collateral_token_ticker);
+        self.token_ticker(&stablecoin_token_id)
+            .set(stablecoin_token_ticker);
         self.pool_delta().set(&BigUint::from(MEDIAN_POOL_DELTA));
 
         let caller = self.blockchain().get_caller();
         let collateral_price = self.get_exchange_rate(&collateral_token_id, &stablecoin_token_id);
         let payment_value_denominated = &payment_amount * &collateral_price;
         let user_payment = self.mint_stablecoins(payment_value_denominated.clone());
-        self.base_pool().update(|total| *total = payment_value_denominated.clone());
-        self.collateral_token_supply()
+        self.base_pool()
+            .update(|total| *total = payment_value_denominated.clone());
+        self.collateral_supply()
             .update(|total| *total += &payment_amount);
 
         let mut user_payments = ManagedVec::new();
@@ -98,7 +110,6 @@ pub trait StablecoinV3:
     #[payable("*")]
     #[endpoint(swapStablecoin)]
     fn swap_stablecoin(&self, amount_out_min: BigUint) {
-
         require!(self.can_swap(), ERROR_SWAP_NOT_ENABLED);
 
         let (amount_in, token_in) = self.call_value().payment_token_pair();
@@ -132,8 +143,17 @@ pub trait StablecoinV3:
         let base_pool = self.base_pool().get();
         let min_swap_spread = BigUint::from(self.spread_fee_min_percent().get());
         let cp = &base_pool * &base_pool;
-        let mut pool_delta = self.pool_delta().get();
-        let stablecoin_pool = &base_pool + &pool_delta;
+        let pool_delta = self.pool_delta().get();
+        let median_pool_delta = BigUint::from(MEDIAN_POOL_DELTA);
+
+        // stablecoin_pool = base_pool + pool_delta;
+        let mut stablecoin_pool = base_pool.clone();
+        if pool_delta > median_pool_delta {
+            stablecoin_pool += &pool_delta - &median_pool_delta;
+        } else if median_pool_delta > pool_delta {
+            stablecoin_pool -= &median_pool_delta - &pool_delta;
+        }
+
         let collateral_pool = &cp / &stablecoin_pool;
 
         let offer_rate;
@@ -154,45 +174,49 @@ pub trait StablecoinV3:
 
         // Calculate optimal value of amount_out
         let amount_out_optimal = &amount_in * &offer_rate / &demand_rate;
-        require!(
-            amount_out_min >= amount_out_optimal,
-            ERROR_SLIPPAGE_EXCEEDED
-        );
 
         // Constant-product based swap amount
         let demand_base_amount = &demand_pool - &(&cp / &(&offer_pool + &amount_out_optimal));
 
         // Calculate spread
-        let mut spread = (&amount_out_optimal - &demand_base_amount) / &amount_out_optimal;
+        let mut spread = ((&amount_out_optimal - &demand_base_amount) / &amount_out_optimal)
+            * BigUint::from(PERCENTAGE);
         if spread < min_swap_spread {
             spread = min_swap_spread;
         }
 
-        let spread_fee = &spread * &amount_out_optimal;
+        let spread_fee = &amount_out_optimal * &spread / BigUint::from(PERCENTAGE);
         let amount_out_after_fee = &amount_out_optimal - &spread_fee;
 
-        // Update pool delta & supplies
-        if stablecoin_buy {
-            pool_delta -= &amount_out_optimal;
-        } else {
-            pool_delta += &amount_in;
-        }
-        self.pool_delta().set(pool_delta);
+        require!(
+            amount_out_after_fee >= amount_out_min,
+            ERROR_SLIPPAGE_EXCEEDED
+        );
 
         let mut user_payments: ManagedVec<EsdtTokenPayment<Self::Api>> = ManagedVec::new();
         let mut fee_payments: ManagedVec<EsdtTokenPayment<Self::Api>> = ManagedVec::new();
 
         if stablecoin_buy {
-            self.collateral_token_supply()
+            self.pool_delta()
+                .update(|total| *total -= amount_out_optimal.clone());
+            self.collateral_supply()
                 .update(|total| *total += amount_in.clone());
-            user_payments.push(self.mint_stablecoins(amount_out_after_fee.clone()));
+            self.mint_stablecoins(amount_out_optimal.clone());
+
+            user_payments.push(EsdtTokenPayment::new(
+                stablecoin_token_id.clone(),
+                0,
+                amount_out_after_fee.clone(),
+            ));
             fee_payments.push(EsdtTokenPayment::new(
                 stablecoin_token_id.clone(),
                 0,
                 spread_fee.clone(),
             ));
         } else {
-            self.collateral_token_supply()
+            self.pool_delta()
+                .update(|total| *total += amount_in.clone());
+            self.collateral_supply()
                 .update(|total| *total -= &amount_out_optimal.clone());
             self.burn_stablecoins(amount_in.clone());
             user_payments.push(EsdtTokenPayment::new(
@@ -238,8 +262,8 @@ pub trait StablecoinV3:
     fn get_exchange_rate(&self, from: &TokenIdentifier, to: &TokenIdentifier) -> BigUint {
         let price_aggregator_address = self.price_aggregator_address().get();
 
-        let from_ticker = b"EGLD"; //self.token_ticker(from).get();
-        let to_ticker = b"USD"; //self.token_ticker(to).get();
+        let from_ticker = self.token_ticker(from).get(); // b"EGLD";
+        let to_ticker = self.token_ticker(to).get(); // b"USD";
 
         let result: AggregatorResultAsMultiValue<Self::Api> = self
             .aggregator_proxy(price_aggregator_address)

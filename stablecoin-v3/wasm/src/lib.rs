@@ -9,8 +9,8 @@ elrond_wasm_node::wasm_endpoints! {
     (
         deployStablecoin
         getBasePool
+        getCollateralSupply
         getCollateralTokenId
-        getCollateralTokenSupply
         getLastReplenishBlock
         getPoolDelta
         getPoolRecoveryPeriod

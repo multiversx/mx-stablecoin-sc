@@ -53,7 +53,7 @@ where
         b_mock.set_esdt_balance(
             &owner_address,
             COLLATERAL_TOKEN_ID,
-            &rust_biguint!(EGLD_DECIMALS),
+            &rust_biguint!(10_000u64),
         );
 
         b_mock.set_esdt_local_roles(sc_wrapper.address_ref(), STABLECOIN_TOKEN_ID, ESDT_ROLES);
@@ -77,7 +77,7 @@ where
                         TokenIdentifier::from_esdt_bytes(STABLECOIN_TOKEN_ID),
                         ManagedBuffer::new_from_bytes(COLLATERAL_TOKEN_TICKER),
                         ManagedBuffer::new_from_bytes(STABLECOIN_TOKEN_TICKER),
-                        managed_biguint!(500u64),
+                        managed_biguint!(1000u64), // 1%
                     );
                 },
             )

@@ -1,5 +1,6 @@
 pub const ERROR_STABLECOIN_TOKEN_NOT_ISSUED: &[u8] = b"Stablecoin token not issued";
 pub const ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS: &[u8] = b"Incorrect price aggregator address";
+pub const ERROR_ALREADY_DEPLOYED: &[u8] = b"Stablecoin has already been deployed";
 
 pub const ERROR_ACTIVE: &[u8] = b"Active state";
 pub const ERROR_NOT_ACTIVE: &[u8] = b"Not active";

@@ -15,7 +15,7 @@ use crate::{
     errors::{
         ERROR_ACTIVE, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT,
         ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS, ERROR_SLIPPAGE_EXCEEDED,
-        ERROR_SWAP_NOT_ENABLED,
+        ERROR_SWAP_NOT_ENABLED, ERROR_ALREADY_DEPLOYED,
     },
     events::SwapEvent,
 };
@@ -78,6 +78,7 @@ pub trait StablecoinV3:
             ERROR_SAME_TOKENS
         );
         require!(token_in == collateral_token_id, ERROR_BAD_PAYMENT_TOKENS);
+        require!(self.base_pool().is_empty(), ERROR_ALREADY_DEPLOYED);
 
         self.spread_fee_min_percent().set(spread_fee_min_percent);
         self.stablecoin().set_token_id(&stablecoin_token_id);

@@ -1,9 +1,6 @@
-use elrond_wasm::{
-    types::{Address, EsdtLocalRole, ManagedBuffer, ManagedVec, TokenIdentifier},
-};
+use elrond_wasm::types::{Address, EsdtLocalRole, ManagedBuffer, ManagedVec, TokenIdentifier};
 use elrond_wasm_debug::{
-    managed_address, managed_biguint, managed_buffer, rust_biguint,
-    testing_framework::*, DebugApi,
+    managed_address, managed_biguint, managed_buffer, rust_biguint, testing_framework::*, DebugApi,
 };
 use price_aggregator::PriceAggregator;
 use stablecoin_v3::config::ConfigModule;
@@ -21,6 +18,7 @@ pub static ESDT_ROLES: &[EsdtLocalRole] = &[
 
 pub const ISSUE_TOKEN_FEE: u64 = 50_000_000_000_000_000;
 pub const EGLD_DECIMALS: u64 = 1_000_000_000_000_000_000;
+pub const POOL_RECOVERY_PERIOD: u64 = 100;
 
 pub struct StablecoinContractSetup<StablecoinContractObjBuilder>
 where
@@ -60,7 +58,7 @@ where
 
         b_mock
             .execute_tx(&owner_address, &sc_wrapper, &rust_zero, |sc| {
-                sc.init(managed_address!(&price_aggregator_address));
+                sc.init(managed_address!(&price_aggregator_address), POOL_RECOVERY_PERIOD);
             })
             .assert_ok();
 
@@ -101,7 +99,7 @@ where
         b_mock.check_esdt_balance(
             &owner_address,
             STABLECOIN_TOKEN_ID,
-            &rust_biguint!(1_000_000),
+            &(&rust_biguint!(1_000_000)),
         );
 
         StablecoinContractSetup {

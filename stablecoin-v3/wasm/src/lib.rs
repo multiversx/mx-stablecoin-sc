@@ -22,6 +22,7 @@ elrond_wasm_node::wasm_endpoints! {
         pause
         registerStablecoin
         resume
+        setPoolRecoveryPeriod
         setSpreadFeeMinPercent
         setStateActiveNoSwaps
         setTokenTicker

@@ -51,6 +51,12 @@ pub trait ConfigModule {
         self.spread_fee_min_percent().set(spread_fee_percent);
     }
 
+    #[only_owner]
+    #[endpoint(setPoolRecoveryPeriod)]
+    fn set_pool_recovery_period(&self, pool_recovery_period: u64) {
+        self.pool_recovery_period().set(pool_recovery_period);
+    }
+    
     #[inline]
     fn is_state_active(&self) -> bool {
         let state = &self.state().get();

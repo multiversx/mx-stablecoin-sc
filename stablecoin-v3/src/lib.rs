@@ -13,9 +13,9 @@ use crate::{
     aggregator_proxy::*,
     config::State,
     errors::{
-        ERROR_ACTIVE, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT,
+        ERROR_ACTIVE, ERROR_ALREADY_DEPLOYED, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT,
         ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS, ERROR_SLIPPAGE_EXCEEDED,
-        ERROR_SWAP_NOT_ENABLED, ERROR_ALREADY_DEPLOYED,
+        ERROR_SWAP_NOT_ENABLED,
     },
     events::SwapEvent,
 };
@@ -28,13 +28,14 @@ pub trait StablecoinV3:
     virtual_liquidity_pools::VLPModule + config::ConfigModule + events::EventsModule
 {
     #[init]
-    fn init(&self, price_aggregator_address: ManagedAddress) {
+    fn init(&self, price_aggregator_address: ManagedAddress, pool_recovery_period: u64) {
         require!(
             !price_aggregator_address.is_zero(),
             ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS
         );
         self.price_aggregator_address()
             .set(&price_aggregator_address);
+        self.pool_recovery_period().set(pool_recovery_period);
         self.state().set(&State::Inactive);
     }
 

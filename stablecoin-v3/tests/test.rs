@@ -2,7 +2,7 @@ mod contract_interactions;
 mod contract_setup;
 use contract_setup::*;
 
-use elrond_wasm_debug::{rust_biguint, DebugApi};
+use elrond_wasm_debug::{DebugApi};
 
 #[test]
 fn init_test() {
@@ -10,63 +10,57 @@ fn init_test() {
 }
 
 #[test]
-fn simple_buy_stablecoin_test() {
-    let rust_zero = rust_biguint!(0);
+fn stablecoin_simple_buy_test() {
     let _ = DebugApi::dummy();
-    let mut sa_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
+    let mut sc_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
 
-    let first_user = sa_setup.b_mock.create_user_account(&rust_zero);
-    sa_setup
-        .b_mock
-        .set_esdt_balance(&first_user, COLLATERAL_TOKEN_ID, &rust_biguint!(100));
-
-    sa_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 100u64, 9000u64);
-
-    sa_setup
-        .b_mock
-        .check_esdt_balance(&first_user, STABLECOIN_TOKEN_ID, &rust_biguint!(9_900));
-
-    sa_setup.b_mock.check_esdt_balance(
-        &sa_setup.owner_address,
-        STABLECOIN_TOKEN_ID,
-        &rust_biguint!(1_000_100),
-    );
-
-    sa_setup.b_mock.check_esdt_balance(
-        &sa_setup.owner_address,
-        COLLATERAL_TOKEN_ID,
-        &rust_biguint!(0),
-    );
+    let first_user = sc_setup.setup_new_user(100u64, 10_000u64);
+    sc_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 100u64, 9_000u64);
+    sc_setup.check_user_balance(&sc_setup.owner_address, STABLECOIN_TOKEN_ID, 1_000_100);
+    sc_setup.check_user_balance(&first_user, STABLECOIN_TOKEN_ID, 19_900);
+    sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 0);
 }
 
 #[test]
-fn simple_sell_stablecoin_test() {
-    let rust_zero = rust_biguint!(0);
+fn stablecoin_simple_sell_test() {
     let _ = DebugApi::dummy();
-    let mut sa_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
+    let mut sc_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
 
-    let first_user = sa_setup.b_mock.create_user_account(&rust_zero);
-    sa_setup
-        .b_mock
-        .set_esdt_balance(&first_user, STABLECOIN_TOKEN_ID, &rust_biguint!(10_000));
+    let first_user = sc_setup.setup_new_user(100u64, 10_000u64);
+    sc_setup.swap_stablecoin(&first_user, STABLECOIN_TOKEN_ID, 10_000u64, 99u64);
+    sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 199);
+    sc_setup.check_user_balance(&sc_setup.owner_address, COLLATERAL_TOKEN_ID, 1);
+    sc_setup.check_user_balance(&sc_setup.owner_address, STABLECOIN_TOKEN_ID, 1_000_000);
+}
 
-    sa_setup.swap_stablecoin(&first_user, STABLECOIN_TOKEN_ID, 10_000u64, 99u64);
+#[test]
+fn stablecoin_multiple_buy_test() {
+    let _ = DebugApi::dummy();
+    let mut sc_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
 
-    sa_setup.b_mock.check_esdt_balance(
-        &first_user,
-        COLLATERAL_TOKEN_ID,
-        &rust_biguint!(99),
-    );
+    sc_setup.change_fee_spread_percentage(2_000); // 2%
 
-    sa_setup.b_mock.check_esdt_balance(
-        &sa_setup.owner_address,
-        COLLATERAL_TOKEN_ID,
-        &rust_biguint!(1), // from fee
-    );
+    let first_user = sc_setup.setup_new_user(1_000u64, 100_000u64);
+    let second_user = sc_setup.setup_new_user(1_000u64, 100_000u64);
+    let third_user = sc_setup.setup_new_user(1_000u64, 100_000u64);
 
-    sa_setup.b_mock.check_esdt_balance(
-        &sa_setup.owner_address,
-        STABLECOIN_TOKEN_ID,
-        &rust_biguint!(1_000_000),
-    );
+    sc_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 500u64, 45_000u64);
+    sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 500);
+    sc_setup.check_user_balance(&first_user, STABLECOIN_TOKEN_ID, 149_000);
+
+    sc_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 200u64, 18_000u64);
+    sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 300);
+    sc_setup.check_user_balance(&first_user, STABLECOIN_TOKEN_ID, 168_600);
+
+    sc_setup.b_mock.set_block_nonce(2u64);
+
+    sc_setup.swap_stablecoin(&second_user, COLLATERAL_TOKEN_ID, 500u64, 18_000u64);
+    sc_setup.check_user_balance(&second_user, COLLATERAL_TOKEN_ID, 500);
+    sc_setup.check_user_balance(&second_user, STABLECOIN_TOKEN_ID, 149_000);
+
+    // sc_setup.b_mock.set_block_nonce(10u64);
+
+    // sc_setup.swap_stablecoin(&third_user, STABLECOIN_TOKEN_ID, 30_000u64, 100u64);
+    // sc_setup.check_user_balance(&third_user, COLLATERAL_TOKEN_ID, 1_200);
+    // sc_setup.check_user_balance(&third_user, STABLECOIN_TOKEN_ID, 70_000);
 }

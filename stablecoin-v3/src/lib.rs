@@ -181,8 +181,17 @@ pub trait StablecoinV3:
         let demand_base_amount = &demand_pool - &(&cp / &(&offer_pool + &amount_out_optimal));
 
         // Calculate spread
-        let mut spread = ((&amount_out_optimal - &demand_base_amount) / &amount_out_optimal)
-            * BigUint::from(PERCENTAGE);
+        let mut spread;
+        if amount_out_optimal > demand_base_amount {
+            spread =
+                ((&amount_out_optimal - &demand_base_amount) / &amount_out_optimal) * PERCENTAGE;
+        } else if amount_out_optimal < demand_base_amount {
+            spread =
+                ((&demand_base_amount - &amount_out_optimal) / &demand_base_amount) * PERCENTAGE;
+        } else {
+            spread = BigUint::zero();
+        }
+
         if spread < min_swap_spread {
             spread = min_swap_spread;
         }

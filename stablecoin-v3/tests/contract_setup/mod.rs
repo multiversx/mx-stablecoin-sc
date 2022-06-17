@@ -17,7 +17,7 @@ pub static ESDT_ROLES: &[EsdtLocalRole] = &[
 ];
 
 pub const ISSUE_TOKEN_FEE: u64 = 50_000_000_000_000_000;
-pub const EGLD_DECIMALS: u64 = 1_000_000_000_000_000_000;
+// pub const EGLD_DECIMALS: u64 = 1_000_000_000_000_000_000;
 pub const POOL_RECOVERY_PERIOD: u64 = 100;
 
 pub struct StablecoinContractSetup<StablecoinContractObjBuilder>

@@ -58,9 +58,9 @@ fn stablecoin_multiple_buy_test() {
     sc_setup.check_user_balance(&second_user, COLLATERAL_TOKEN_ID, 500);
     sc_setup.check_user_balance(&second_user, STABLECOIN_TOKEN_ID, 149_000);
 
-    // sc_setup.b_mock.set_block_nonce(10u64);
+    sc_setup.b_mock.set_block_nonce(10u64);
 
-    // sc_setup.swap_stablecoin(&third_user, STABLECOIN_TOKEN_ID, 30_000u64, 100u64);
-    // sc_setup.check_user_balance(&third_user, COLLATERAL_TOKEN_ID, 1_200);
-    // sc_setup.check_user_balance(&third_user, STABLECOIN_TOKEN_ID, 70_000);
+    sc_setup.swap_stablecoin(&third_user, STABLECOIN_TOKEN_ID, 30_000u64, 100u64);
+    sc_setup.check_user_balance(&third_user, COLLATERAL_TOKEN_ID, 1_294);
+    sc_setup.check_user_balance(&third_user, STABLECOIN_TOKEN_ID, 70_000);
 }

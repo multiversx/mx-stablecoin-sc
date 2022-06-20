@@ -104,6 +104,10 @@ pub trait ConfigModule {
     #[storage_mapper("pool_delta")]
     fn pool_delta(&self) -> SingleValueMapper<BigUint>;
 
+    #[view(getMedianPoolDelta)]
+    #[storage_mapper("median_pool_delta")]
+    fn median_pool_delta(&self) -> SingleValueMapper<BigUint>;
+
     #[view(getPoolRecoveryPeriod)]
     #[storage_mapper("pool_recovery_period")]
     fn pool_recovery_period(&self) -> SingleValueMapper<Block>;

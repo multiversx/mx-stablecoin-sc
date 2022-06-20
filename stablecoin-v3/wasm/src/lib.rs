@@ -12,6 +12,7 @@ elrond_wasm_node::wasm_endpoints! {
         getCollateralSupply
         getCollateralTokenId
         getLastReplenishBlock
+        getMedianPoolDelta
         getPoolDelta
         getPoolRecoveryPeriod
         getPriceAggregatorAddress

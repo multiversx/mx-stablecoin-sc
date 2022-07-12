@@ -4,6 +4,7 @@ elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
 pub mod aggregator_proxy;
+pub mod collateral_provision;
 pub mod config;
 pub mod errors;
 pub mod events;
@@ -11,20 +12,26 @@ pub mod virtual_liquidity_pools;
 
 use crate::{
     aggregator_proxy::*,
+    collateral_provision::{CpToken, CpTokenAttributes},
     config::State,
     errors::{
-        ERROR_ACTIVE, ERROR_ALREADY_DEPLOYED, ERROR_BAD_PAYMENT_TOKENS, ERROR_NOT_AN_ESDT,
-        ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS, ERROR_SLIPPAGE_EXCEEDED,
-        ERROR_STABLECOIN_TOKEN_NOT_ISSUED, ERROR_SWAP_NOT_ENABLED,
+        ERROR_ACTIVE, ERROR_ALREADY_DEPLOYED, ERROR_BAD_PAYMENT_TOKENS,
+        ERROR_COLLATERAL_TOKEN_UNDEFINED, ERROR_INVALID_AMOUNT, ERROR_NOT_ACTIVE,
+        ERROR_NOT_AN_ESDT, ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS,
+        ERROR_SLIPPAGE_EXCEEDED, ERROR_STABLECOIN_TOKEN_NOT_ISSUED, ERROR_SWAP_NOT_ENABLED,
+        ERROR_UNLISTED_COLLATERAL,
     },
-    events::SwapEvent,
+    events::{ProvisionEvent, SwapEvent},
 };
 
 const PERCENTAGE: u64 = 100_000;
 
 #[elrond_wasm::contract]
 pub trait StablecoinV3:
-    virtual_liquidity_pools::VLPModule + config::ConfigModule + events::EventsModule
+    virtual_liquidity_pools::VLPModule
+    + config::ConfigModule
+    + events::EventsModule
+    + collateral_provision::CollateralProvisionModule
 {
     #[init]
     fn init(&self, price_aggregator_address: ManagedAddress, pool_recovery_period: u64) {
@@ -70,7 +77,7 @@ pub trait StablecoinV3:
         initial_stablecoin_token_ticker: ManagedBuffer,
         spread_fee_min_percent: BigUint,
     ) -> EsdtTokenPayment<Self::Api> {
-        let (payment_amount, token_in) = self.call_value().payment_token_pair();
+        let (payment_token, payment_amount) = self.call_value().single_fungible_esdt();
 
         require!(
             !self.stablecoin().is_empty(),
@@ -78,13 +85,22 @@ pub trait StablecoinV3:
         );
 
         let stablecoin_token_id = self.stablecoin().get_token_id();
-        require!(collateral_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
-        require!(stablecoin_token_id.is_esdt(), ERROR_NOT_AN_ESDT);
+        require!(
+            collateral_token_id.is_valid_esdt_identifier(),
+            ERROR_NOT_AN_ESDT
+        );
+        require!(
+            stablecoin_token_id.is_valid_esdt_identifier(),
+            ERROR_NOT_AN_ESDT
+        );
         require!(
             collateral_token_id != stablecoin_token_id,
             ERROR_SAME_TOKENS
         );
-        require!(token_in == collateral_token_id, ERROR_BAD_PAYMENT_TOKENS);
+        require!(
+            payment_token == collateral_token_id,
+            ERROR_BAD_PAYMENT_TOKENS
+        );
         require!(self.base_pool().is_empty(), ERROR_ALREADY_DEPLOYED);
 
         self.spread_fee_min_percent().set(spread_fee_min_percent);
@@ -98,11 +114,12 @@ pub trait StablecoinV3:
             .set(initial_stablecoin_token_ticker);
 
         let caller = self.blockchain().get_caller();
-        let collateral_price = self.get_exchange_rate(&collateral_token_id, &initial_stablecoin_token_id);
-        let payment_value_denominated =
-            (&payment_amount) * (&collateral_price);
+        let collateral_price =
+            self.get_exchange_rate(&collateral_token_id, &initial_stablecoin_token_id);
+        let payment_value_denominated = (&payment_amount) * (&collateral_price);
 
-        self.median_pool_delta().set(payment_value_denominated.clone());
+        self.median_pool_delta()
+            .set(payment_value_denominated.clone());
         self.pool_delta().set(payment_value_denominated.clone());
 
         let user_payment = self.mint_stablecoins(payment_value_denominated.clone());
@@ -112,12 +129,11 @@ pub trait StablecoinV3:
             .update(|total| *total += &payment_amount);
 
         if user_payment.amount > BigUint::zero() {
-            self.send().direct(
+            self.send().direct_esdt(
                 &caller,
                 &user_payment.token_identifier,
                 user_payment.token_nonce,
                 &user_payment.amount,
-                &[],
             );
         }
 
@@ -129,7 +145,7 @@ pub trait StablecoinV3:
     fn swap_stablecoin(&self, amount_out_min: BigUint) {
         require!(self.can_swap(), ERROR_SWAP_NOT_ENABLED);
 
-        let (amount_in, token_in) = self.call_value().payment_token_pair();
+        let (token_in, amount_in) = self.call_value().single_fungible_esdt();
         let collateral_token_id = self.collateral_token_id().get();
         let stablecoin_token_id = self.stablecoin().get_token_id();
 
@@ -200,8 +216,7 @@ pub trait StablecoinV3:
         if amount_out_optimal > demand_base_amount {
             spread = (&amount_out_optimal - &demand_base_amount) * PERCENTAGE / &amount_out_optimal;
         } else if amount_out_optimal < demand_base_amount {
-            spread =
-                (&demand_base_amount - &amount_out_optimal) * PERCENTAGE / &demand_base_amount;
+            spread = (&demand_base_amount - &amount_out_optimal) * PERCENTAGE / &demand_base_amount;
         } else {
             spread = BigUint::zero();
         }
@@ -222,6 +237,7 @@ pub trait StablecoinV3:
         let user_payment: EsdtTokenPayment<Self::Api>;
         let fee_payment: EsdtTokenPayment<Self::Api>;
 
+        // TODO - always keep fees in stablecoin?
         if stablecoin_buy {
             self.pool_delta()
                 .update(|total| *total -= amount_out_optimal.clone());
@@ -243,24 +259,17 @@ pub trait StablecoinV3:
             fee_payment = EsdtTokenPayment::new(collateral_token_id.clone(), 0, spread_fee.clone());
         }
 
+        // Update rewards data
+        if fee_payment.amount > 0u64 {
+            self.update_rewards(fee_payment.amount);
+        }
+
         // Send tokens to caller
-        self.send().direct(
+        self.send().direct_esdt(
             &caller,
             &user_payment.token_identifier,
             user_payment.token_nonce,
             &user_payment.amount,
-            &[],
-        );
-
-        // TODO - change address from owner to oracle SC
-        // Send swap fees to oracle SC
-        let owner = self.blockchain().get_owner_address();
-        self.send().direct(
-            &owner,
-            &fee_payment.token_identifier,
-            fee_payment.token_nonce,
-            &fee_payment.amount,
-            &[],
         );
 
         // Emit event
@@ -276,6 +285,126 @@ pub trait StablecoinV3:
             timestamp: self.blockchain().get_block_timestamp(),
         };
         self.emit_swap_event(&swap_event);
+    }
+
+    #[payable("*")]
+    #[endpoint(provideCollateral)]
+    fn provide_collateral(&self) {
+        let (collateral_token_id, payment_amount) = self.call_value().single_fungible_esdt();
+
+        require!(self.is_state_active(), ERROR_NOT_ACTIVE);
+        require!(
+            self.collateral_tokens().contains(&collateral_token_id),
+            ERROR_UNLISTED_COLLATERAL
+        );
+        require!(
+            !self.stablecoin().is_empty(),
+            ERROR_STABLECOIN_TOKEN_NOT_ISSUED
+        );
+        require!(payment_amount > BigUint::zero(), ERROR_INVALID_AMOUNT);
+
+        let cp_token_id = self.cp_token().get_token_id();
+        let stablecoin_token_id = self.stablecoin().get_token_id();
+        let collateral_price = self.get_exchange_rate(&collateral_token_id, &stablecoin_token_id);
+
+        let cp_token_amount = &payment_amount * &collateral_price;
+
+        let caller = self.blockchain().get_caller();
+        let current_epoch = self.blockchain().get_block_epoch();
+        let attr = CpTokenAttributes {
+            reward_per_share: self.reward_per_share().get(),
+            entering_epoch: current_epoch,
+        };
+
+        let virtual_position = CpToken {
+            payment: EsdtTokenPayment::new(cp_token_id.clone(), 0, BigUint::zero()),
+            attributes: attr,
+        };
+
+        let user_payment = self.mint_cp_tokens(cp_token_id, cp_token_amount, &virtual_position);
+        self.send().direct_esdt(
+            &caller,
+            &user_payment.token_identifier,
+            user_payment.token_nonce,
+            &user_payment.amount,
+        );
+
+        // Emit collateral provision event
+        let provision_event = ProvisionEvent {
+            caller: caller,
+            token_id_in: collateral_token_id,
+            token_amount_in: payment_amount,
+            block: self.blockchain().get_block_nonce(),
+            epoch: self.blockchain().get_block_epoch(),
+            timestamp: self.blockchain().get_block_timestamp(),
+        };
+        self.emit_provide_collateral_event(&provision_event);
+    }
+
+    #[payable("*")]
+    #[endpoint(claimFeeRewards)]
+    fn claim_fee_rewards(&self) {
+        let (cp_token_id, payment_nonce, payment_amount) =
+            self.call_value().single_esdt().into_tuple();
+
+        require!(self.is_state_active(), ERROR_NOT_ACTIVE);
+        require!(
+            self.collateral_tokens().contains(&cp_token_id),
+            ERROR_COLLATERAL_TOKEN_UNDEFINED
+        );
+        require!(
+            !self.stablecoin().is_empty(),
+            ERROR_STABLECOIN_TOKEN_NOT_ISSUED
+        );
+        require!(payment_amount > BigUint::zero(), ERROR_INVALID_AMOUNT);
+
+        let user_reward = self.calculate_fee_rewards(&cp_token_id, payment_nonce, &payment_amount);
+        self.reward_reserve().update(|x| *x -= &user_reward);
+        self.burn_cp_tokens(&cp_token_id, payment_nonce, &payment_amount);
+
+        let current_epoch = self.blockchain().get_block_epoch();
+        let attr = CpTokenAttributes {
+            reward_per_share: self.reward_per_share().get(),
+            entering_epoch: current_epoch,
+        };
+
+        let virtual_position = CpToken {
+            payment: EsdtTokenPayment::new(cp_token_id.clone(), 0, BigUint::zero()),
+            attributes: attr,
+        };
+
+        let user_payment = self.mint_cp_tokens(cp_token_id, payment_amount, &virtual_position);
+
+        let caller = self.blockchain().get_caller();
+        self.send().direct_esdt(
+            &caller,
+            &user_payment.token_identifier,
+            user_payment.token_nonce,
+            &user_payment.amount,
+        )
+    }
+
+    #[view(calculateFeeRewards)]
+    fn calculate_fee_rewards(
+        &self,
+        cp_token_id: &TokenIdentifier,
+        nonce: u64,
+        amount: &BigUint,
+    ) -> BigUint {
+        let cp_token_attributes =
+            self.get_cp_token_attributes::<CpTokenAttributes<Self::Api>>(cp_token_id, nonce);
+        let rps = self.reward_per_share().get();
+
+        let reward = if &rps > &cp_token_attributes.reward_per_share {
+            let rps_diff = &rps - &cp_token_attributes.reward_per_share;
+            let div_safety = self.division_safety_constant().get();
+
+            amount * &rps_diff / div_safety
+        } else {
+            BigUint::zero()
+        };
+
+        reward
     }
 
     // proxy

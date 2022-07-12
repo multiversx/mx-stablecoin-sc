@@ -119,4 +119,28 @@ pub trait ConfigModule {
     #[view(getSpreadFeeMinPercent)]
     #[storage_mapper("spread_fee_min_percent")]
     fn spread_fee_min_percent(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("collateral_tokens")]
+    fn collateral_tokens(&self) -> WhitelistMapper<Self::Api, TokenIdentifier>;
+
+    #[view(getCpTokenId)]
+    #[storage_mapper("cp_token_id")]
+    fn cp_token(&self) -> NonFungibleTokenMapper<Self::Api>;
+
+    #[view(getCpTokenSupply)]
+    #[storage_mapper("cp_token_supply")]
+    fn cp_token_supply(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getRewardReserve)]
+    #[storage_mapper("reward_reserve")]
+    fn reward_reserve(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getRewardPerShare)]
+    #[storage_mapper("reward_per_share")]
+    fn reward_per_share(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getDivisionSafetyConstant)]
+    #[storage_mapper("division_safety_constant")]
+    fn division_safety_constant(&self) -> SingleValueMapper<BigUint>;
+    
 }

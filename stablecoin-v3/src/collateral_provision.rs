@@ -1,35 +1,10 @@
-
 elrond_wasm::imports!();
 elrond_wasm::derive_imports!();
 
-use crate::config;
+use crate::{config, errors::ERROR_COLLATERAL_TOKEN_ALREADY_DEFINED};
 use elrond_wasm::elrond_codec::TopEncode;
 
-#[derive(
-    TopEncode,
-    TopDecode,
-    NestedEncode,
-    NestedDecode,
-    TypeAbi,
-    Clone,
-    PartialEq,
-    Debug,
-)]
-pub struct CpToken<M: ManagedTypeApi> {
-    pub payment: EsdtTokenPayment<M>,
-    pub attributes: CpTokenAttributes<M>,
-}
-
-#[derive(
-    TopEncode,
-    TopDecode,
-    NestedEncode,
-    NestedDecode,
-    TypeAbi,
-    Clone,
-    PartialEq,
-    Debug,
-)]
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone, PartialEq, Debug)]
 pub struct CpTokenAttributes<M: ManagedTypeApi> {
     pub reward_per_share: BigUint<M>,
     pub entering_epoch: u64,
@@ -37,7 +12,6 @@ pub struct CpTokenAttributes<M: ManagedTypeApi> {
 
 #[elrond_wasm::module]
 pub trait CollateralProvisionModule: config::ConfigModule {
-
     #[only_owner]
     #[payable("EGLD")]
     #[endpoint(registerFarmToken)]
@@ -56,6 +30,22 @@ pub trait CollateralProvisionModule: config::ConfigModule {
             num_decimals,
             None,
         );
+    }
+
+    #[only_owner]
+    #[endpoint(registerCollateralToken)]
+    fn register_collateral_token(
+        &self,
+        collateral_token: TokenIdentifier,
+        collateral_token_ticker: ManagedBuffer,
+    ) {
+        require!(
+            !self.collateral_tokens().contains(&collateral_token),
+            ERROR_COLLATERAL_TOKEN_ALREADY_DEFINED
+        );
+        self.collateral_tokens().add(&collateral_token);
+        self.token_ticker(&collateral_token)
+            .set(collateral_token_ticker);
     }
 
     fn mint_cp_tokens<T: TopEncode>(
@@ -91,16 +81,14 @@ pub trait CollateralProvisionModule: config::ConfigModule {
         token_info.decode_attributes()
     }
 
-    fn update_rewards(&self, fee_amount: BigUint) {   
-            let division_safety_constant = self.division_safety_constant().get();
-            let cp_token_supply = self.cp_token_supply().get();
-            self.reward_reserve().update(|x| *x += &fee_amount);
+    fn update_rewards(&self, fee_amount: BigUint) {
+        let division_safety_constant = self.division_safety_constant().get();
+        let cp_token_supply = self.cp_token_supply().get();
+        self.reward_reserve().update(|x| *x += &fee_amount);
 
-            if self.cp_token_supply().get() != 0u64 {
-                let increase = (fee_amount * &division_safety_constant)
-                    / cp_token_supply;
-                self.reward_per_share().update(|x| *x += &increase);
-            }
+        if cp_token_supply != 0u64 {
+            let increase = (fee_amount * &division_safety_constant) / cp_token_supply;
+            self.reward_per_share().update(|x| *x += &increase);
+        }
     }
-
 }

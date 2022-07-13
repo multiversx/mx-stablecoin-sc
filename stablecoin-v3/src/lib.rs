@@ -12,11 +12,11 @@ pub mod virtual_liquidity_pools;
 
 use crate::{
     aggregator_proxy::*,
-    collateral_provision::{CpToken, CpTokenAttributes},
+    collateral_provision::CpTokenAttributes,
     config::State,
     errors::{
-        ERROR_ACTIVE, ERROR_ALREADY_DEPLOYED, ERROR_BAD_PAYMENT_TOKENS,
-        ERROR_COLLATERAL_TOKEN_UNDEFINED, ERROR_INVALID_AMOUNT, ERROR_NOT_ACTIVE,
+        ERROR_ACTIVE, ERROR_ALREADY_DEPLOYED, ERROR_BAD_PAYMENT_TOKENS, ERROR_CP_TOKEN_UNDEFINED,
+        ERROR_DIVISION_SAFETY_CONSTANT_ZERO, ERROR_INVALID_AMOUNT, ERROR_NOT_ACTIVE,
         ERROR_NOT_AN_ESDT, ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS, ERROR_SAME_TOKENS,
         ERROR_SLIPPAGE_EXCEEDED, ERROR_STABLECOIN_TOKEN_NOT_ISSUED, ERROR_SWAP_NOT_ENABLED,
         ERROR_UNLISTED_COLLATERAL,
@@ -34,14 +34,25 @@ pub trait StablecoinV3:
     + collateral_provision::CollateralProvisionModule
 {
     #[init]
-    fn init(&self, price_aggregator_address: ManagedAddress, pool_recovery_period: u64) {
+    fn init(
+        &self,
+        price_aggregator_address: ManagedAddress,
+        pool_recovery_period: u64,
+        division_safety_constant: BigUint,
+    ) {
         require!(
             !price_aggregator_address.is_zero(),
             ERROR_PRICE_AGGREGATOR_WRONG_ADDRESS
         );
+        require!(
+            division_safety_constant > 0u64,
+            ERROR_DIVISION_SAFETY_CONSTANT_ZERO
+        );
         self.price_aggregator_address()
             .set(&price_aggregator_address);
         self.pool_recovery_period().set(pool_recovery_period);
+        self.division_safety_constant()
+            .set(division_safety_constant);
         self.state().set(&State::Inactive);
     }
 
@@ -105,7 +116,7 @@ pub trait StablecoinV3:
 
         self.spread_fee_min_percent().set(spread_fee_min_percent);
 
-        self.collateral_token_id().set(&collateral_token_id);
+        self.base_collateral_token_id().set(&collateral_token_id);
         self.token_ticker(&collateral_token_id)
             .set(collateral_token_ticker);
         self.token_ticker(&stablecoin_token_id)
@@ -116,6 +127,7 @@ pub trait StablecoinV3:
         let caller = self.blockchain().get_caller();
         let collateral_price =
             self.get_exchange_rate(&collateral_token_id, &initial_stablecoin_token_id);
+
         let payment_value_denominated = (&payment_amount) * (&collateral_price);
 
         self.median_pool_delta()
@@ -146,7 +158,7 @@ pub trait StablecoinV3:
         require!(self.can_swap(), ERROR_SWAP_NOT_ENABLED);
 
         let (token_in, amount_in) = self.call_value().single_fungible_esdt();
-        let collateral_token_id = self.collateral_token_id().get();
+        let collateral_token_id = self.base_collateral_token_id().get();
         let stablecoin_token_id = self.stablecoin().get_token_id();
 
         require!(
@@ -256,6 +268,8 @@ pub trait StablecoinV3:
             self.burn_stablecoins(amount_in.clone());
             user_payment =
                 EsdtTokenPayment::new(collateral_token_id.clone(), 0, amount_out_after_fee.clone());
+
+            // TODO - stablecoin here?
             fee_payment = EsdtTokenPayment::new(collateral_token_id.clone(), 0, spread_fee.clone());
         }
 
@@ -305,20 +319,17 @@ pub trait StablecoinV3:
 
         let cp_token_id = self.cp_token().get_token_id();
         let stablecoin_token_id = self.stablecoin().get_token_id();
+
         let collateral_price = self.get_exchange_rate(&collateral_token_id, &stablecoin_token_id);
 
         let cp_token_amount = &payment_amount * &collateral_price;
 
         let caller = self.blockchain().get_caller();
         let current_epoch = self.blockchain().get_block_epoch();
-        let attr = CpTokenAttributes {
+
+        let virtual_position = CpTokenAttributes {
             reward_per_share: self.reward_per_share().get(),
             entering_epoch: current_epoch,
-        };
-
-        let virtual_position = CpToken {
-            payment: EsdtTokenPayment::new(cp_token_id.clone(), 0, BigUint::zero()),
-            attributes: attr,
         };
 
         let user_payment = self.mint_cp_tokens(cp_token_id, cp_token_amount, &virtual_position);
@@ -348,10 +359,7 @@ pub trait StablecoinV3:
             self.call_value().single_esdt().into_tuple();
 
         require!(self.is_state_active(), ERROR_NOT_ACTIVE);
-        require!(
-            self.collateral_tokens().contains(&cp_token_id),
-            ERROR_COLLATERAL_TOKEN_UNDEFINED
-        );
+        require!(!self.cp_token().is_empty(), ERROR_CP_TOKEN_UNDEFINED);
         require!(
             !self.stablecoin().is_empty(),
             ERROR_STABLECOIN_TOKEN_NOT_ISSUED
@@ -363,25 +371,26 @@ pub trait StablecoinV3:
         self.burn_cp_tokens(&cp_token_id, payment_nonce, &payment_amount);
 
         let current_epoch = self.blockchain().get_block_epoch();
-        let attr = CpTokenAttributes {
+
+        let virtual_position = CpTokenAttributes {
             reward_per_share: self.reward_per_share().get(),
             entering_epoch: current_epoch,
         };
 
-        let virtual_position = CpToken {
-            payment: EsdtTokenPayment::new(cp_token_id.clone(), 0, BigUint::zero()),
-            attributes: attr,
-        };
-
-        let user_payment = self.mint_cp_tokens(cp_token_id, payment_amount, &virtual_position);
+        let user_cp_payment = self.mint_cp_tokens(cp_token_id, payment_amount, &virtual_position);
 
         let caller = self.blockchain().get_caller();
-        self.send().direct_esdt(
-            &caller,
-            &user_payment.token_identifier,
-            user_payment.token_nonce,
-            &user_payment.amount,
-        )
+
+        let mut payments = ManagedVec::new();
+
+        payments.push(EsdtTokenPayment::new(
+            self.stablecoin().get_token_id(),
+            0,
+            user_reward,
+        ));
+        payments.push(user_cp_payment);
+
+        self.send().direct_multi(&caller, &payments);
     }
 
     #[view(calculateFeeRewards)]

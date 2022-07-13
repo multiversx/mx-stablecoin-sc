@@ -12,7 +12,6 @@ pub enum State {
 
 #[elrond_wasm::module]
 pub trait ConfigModule {
-
     #[only_owner]
     #[endpoint(setTokenTicker)]
     fn set_token_ticker(&self, token_id: TokenIdentifier, ticker: ManagedBuffer) {
@@ -56,7 +55,7 @@ pub trait ConfigModule {
     fn set_pool_recovery_period(&self, pool_recovery_period: u64) {
         self.pool_recovery_period().set(pool_recovery_period);
     }
-    
+
     #[inline]
     fn is_state_active(&self) -> bool {
         let state = &self.state().get();
@@ -80,9 +79,9 @@ pub trait ConfigModule {
     #[storage_mapper("price_aggregator_address")]
     fn price_aggregator_address(&self) -> SingleValueMapper<ManagedAddress>;
 
-    #[view(getCollateralTokenId)]
-    #[storage_mapper("collateral_token_id")]
-    fn collateral_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
+    #[view(getBaseCollateralTokenId)]
+    #[storage_mapper("base_collateral_token_id")]
+    fn base_collateral_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
     #[view(getCollateralSupply)]
     #[storage_mapper("collateral_supply")]
@@ -142,5 +141,4 @@ pub trait ConfigModule {
     #[view(getDivisionSafetyConstant)]
     #[storage_mapper("division_safety_constant")]
     fn division_safety_constant(&self) -> SingleValueMapper<BigUint>;
-    
 }

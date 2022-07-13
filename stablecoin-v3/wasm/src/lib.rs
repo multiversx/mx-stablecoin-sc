@@ -10,9 +10,9 @@ elrond_wasm_node::wasm_endpoints! {
         calculateFeeRewards
         claimFeeRewards
         deployStablecoin
+        getBaseCollateralTokenId
         getBasePool
         getCollateralSupply
-        getCollateralTokenId
         getCpTokenId
         getCpTokenSupply
         getDivisionSafetyConstant
@@ -29,6 +29,7 @@ elrond_wasm_node::wasm_endpoints! {
         getState
         pause
         provideCollateral
+        registerCollateralToken
         registerFarmToken
         registerStablecoin
         resume

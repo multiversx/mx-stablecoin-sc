@@ -132,11 +132,11 @@ pub trait ConfigModule {
 
     #[view(getRewardReserve)]
     #[storage_mapper("reward_reserve")]
-    fn reward_reserve(&self) -> SingleValueMapper<BigUint>;
+    fn reward_reserve(&self, token_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getRewardPerShare)]
     #[storage_mapper("reward_per_share")]
-    fn reward_per_share(&self) -> SingleValueMapper<BigUint>;
+    fn reward_per_share(&self, token_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getDivisionSafetyConstant)]
     #[storage_mapper("division_safety_constant")]

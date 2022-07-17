@@ -6,7 +6,8 @@ use elrond_wasm::elrond_codec::TopEncode;
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone, PartialEq, Debug)]
 pub struct CpTokenAttributes<M: ManagedTypeApi> {
-    pub reward_per_share: BigUint<M>,
+    pub stablecoin_reward_per_share: BigUint<M>,
+    pub collateral_reward_per_share: BigUint<M>,
     pub entering_epoch: u64,
 }
 
@@ -81,14 +82,14 @@ pub trait CollateralProvisionModule: config::ConfigModule {
         token_info.decode_attributes()
     }
 
-    fn update_rewards(&self, fee_amount: BigUint) {
+    fn update_rewards(&self, token_id: &TokenIdentifier, fee_amount: &BigUint) {
         let division_safety_constant = self.division_safety_constant().get();
         let cp_token_supply = self.cp_token_supply().get();
-        self.reward_reserve().update(|x| *x += &fee_amount);
+        self.reward_reserve(token_id).update(|x| *x += fee_amount);
 
         if cp_token_supply != 0u64 {
             let increase = (fee_amount * &division_safety_constant) / cp_token_supply;
-            self.reward_per_share().update(|x| *x += &increase);
+            self.reward_per_share(token_id).update(|x| *x += &increase);
         }
     }
 }

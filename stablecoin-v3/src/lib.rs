@@ -247,9 +247,7 @@ pub trait StablecoinV3:
         );
 
         let user_payment: EsdtTokenPayment<Self::Api>;
-        let fee_payment: EsdtTokenPayment<Self::Api>;
 
-        // TODO - always keep fees in stablecoin?
         if stablecoin_buy {
             self.pool_delta()
                 .update(|total| *total -= amount_out_optimal.clone());
@@ -257,25 +255,25 @@ pub trait StablecoinV3:
                 .update(|total| *total += amount_in.clone());
             self.mint_stablecoins(amount_out_optimal.clone());
 
+            if spread_fee > 0u64 {
+                self.update_rewards(&stablecoin_token_id, &spread_fee);
+            }
+
             user_payment =
                 EsdtTokenPayment::new(stablecoin_token_id.clone(), 0, amount_out_after_fee.clone());
-            fee_payment = EsdtTokenPayment::new(stablecoin_token_id.clone(), 0, spread_fee.clone());
         } else {
             self.pool_delta()
                 .update(|total| *total += amount_in.clone());
             self.collateral_supply()
                 .update(|total| *total -= &amount_out_optimal.clone());
             self.burn_stablecoins(amount_in.clone());
+
+            if spread_fee > 0u64 {
+                self.update_rewards(&collateral_token_id, &spread_fee);
+            }
+
             user_payment =
                 EsdtTokenPayment::new(collateral_token_id.clone(), 0, amount_out_after_fee.clone());
-
-            // TODO - stablecoin here?
-            fee_payment = EsdtTokenPayment::new(collateral_token_id.clone(), 0, spread_fee.clone());
-        }
-
-        // Update rewards data
-        if fee_payment.amount > 0u64 {
-            self.update_rewards(fee_payment.amount);
         }
 
         // Send tokens to caller
@@ -328,7 +326,12 @@ pub trait StablecoinV3:
         let current_epoch = self.blockchain().get_block_epoch();
 
         let virtual_position = CpTokenAttributes {
-            reward_per_share: self.reward_per_share().get(),
+            stablecoin_reward_per_share: self
+                .reward_per_share(&self.stablecoin().get_token_id())
+                .get(),
+            collateral_reward_per_share: self
+                .reward_per_share(&self.base_collateral_token_id().get())
+                .get(),
             entering_epoch: current_epoch,
         };
 
@@ -366,14 +369,22 @@ pub trait StablecoinV3:
         );
         require!(payment_amount > BigUint::zero(), ERROR_INVALID_AMOUNT);
 
-        let user_reward = self.calculate_fee_rewards(&cp_token_id, payment_nonce, &payment_amount);
-        self.reward_reserve().update(|x| *x -= &user_reward);
+        let stablecoin_token_id = self.stablecoin().get_token_id();
+        let base_collateral_token_id = self.base_collateral_token_id().get();
+
+        let (stablecoin_rewards, collateral_rewards) =
+            self.calculate_fee_rewards(&cp_token_id, payment_nonce, &payment_amount);
+        self.reward_reserve(&stablecoin_token_id)
+            .update(|x| *x -= &stablecoin_rewards);
+        self.reward_reserve(&base_collateral_token_id)
+            .update(|x| *x -= &collateral_rewards);
         self.burn_cp_tokens(&cp_token_id, payment_nonce, &payment_amount);
 
         let current_epoch = self.blockchain().get_block_epoch();
 
         let virtual_position = CpTokenAttributes {
-            reward_per_share: self.reward_per_share().get(),
+            stablecoin_reward_per_share: self.reward_per_share(&stablecoin_token_id).get(),
+            collateral_reward_per_share: self.reward_per_share(&base_collateral_token_id).get(),
             entering_epoch: current_epoch,
         };
 
@@ -384,9 +395,14 @@ pub trait StablecoinV3:
         let mut payments = ManagedVec::new();
 
         payments.push(EsdtTokenPayment::new(
-            self.stablecoin().get_token_id(),
+            stablecoin_token_id,
             0,
-            user_reward,
+            stablecoin_rewards,
+        ));
+        payments.push(EsdtTokenPayment::new(
+            base_collateral_token_id,
+            0,
+            collateral_rewards,
         ));
         payments.push(user_cp_payment);
 
@@ -399,21 +415,37 @@ pub trait StablecoinV3:
         cp_token_id: &TokenIdentifier,
         nonce: u64,
         amount: &BigUint,
-    ) -> BigUint {
+    ) -> (BigUint, BigUint) {
         let cp_token_attributes =
             self.get_cp_token_attributes::<CpTokenAttributes<Self::Api>>(cp_token_id, nonce);
-        let rps = self.reward_per_share().get();
+        let stablecoin_rps = self
+            .reward_per_share(&self.stablecoin().get_token_id())
+            .get();
+        let collateral_rps = self
+            .reward_per_share(&self.base_collateral_token_id().get())
+            .get();
 
-        let reward = if &rps > &cp_token_attributes.reward_per_share {
-            let rps_diff = &rps - &cp_token_attributes.reward_per_share;
-            let div_safety = self.division_safety_constant().get();
+        let stablecoin_rewards =
+            if &stablecoin_rps > &cp_token_attributes.stablecoin_reward_per_share {
+                let rps_diff = &stablecoin_rps - &cp_token_attributes.stablecoin_reward_per_share;
+                let div_safety = self.division_safety_constant().get();
 
-            amount * &rps_diff / div_safety
-        } else {
-            BigUint::zero()
-        };
+                amount * &rps_diff / div_safety
+            } else {
+                BigUint::zero()
+            };
 
-        reward
+        let collateral_rewards =
+            if &collateral_rps > &cp_token_attributes.collateral_reward_per_share {
+                let rps_diff = &collateral_rps - &cp_token_attributes.collateral_reward_per_share;
+                let div_safety = self.division_safety_constant().get();
+
+                amount * &rps_diff / div_safety
+            } else {
+                BigUint::zero()
+            };
+
+        (stablecoin_rewards, collateral_rewards)
     }
 
     // proxy

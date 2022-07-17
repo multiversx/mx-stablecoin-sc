@@ -34,7 +34,6 @@ fn stablecoin_simple_sell_test() {
     sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 199);
     sc_setup.check_user_balance(&sc_setup.owner_address, COLLATERAL_TOKEN_ID, 0);
     sc_setup.check_user_balance(&sc_setup.owner_address, STABLECOIN_TOKEN_ID, 100_000_000);
-    // sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), STABLECOIN_TOKEN_ID, 100);
 }
 
 #[test]
@@ -122,6 +121,69 @@ fn stablecoin_collateral_provision_with_claim_rewards_test() {
     sc_setup.claim_fee_rewards(&first_user, CP_TOKEN_ID, 2, 25500);
     sc_setup.check_user_nft_balance(&first_user, CP_TOKEN_ID, 3, 25500);
     sc_setup.check_user_balance_denominated(&first_user, STABLECOIN_TOKEN_ID, exp9(20_499_999_999_982)); // (19_900 + 599.999999982) + 0
+
+}
+
+#[test]
+fn stablecoin_collateral_provision_multiple_users_claim_rewards_test() {
+    let _ = DebugApi::dummy();
+    let mut sc_setup = StablecoinContractSetup::new(stablecoin_v3::contract_obj);
+
+    let first_user = sc_setup.setup_new_user_with_overcollateral(200u64, 10_000u64, 1_000u64);
+    let second_user = sc_setup.setup_new_user_with_overcollateral(200u64, 10_000u64, 1_000u64);
+    let third_user = sc_setup.setup_new_user_with_overcollateral(100u64, 10_000u64, 1_000u64);
+
+    sc_setup.provide_collateral(&first_user, OVERCOLLATERAL_TOKEN_ID, 1_000u64);
+    sc_setup.check_user_balance(&first_user, OVERCOLLATERAL_TOKEN_ID, 0);
+    sc_setup.check_user_nft_balance(&first_user, CP_TOKEN_ID, 1, 30_000);
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), OVERCOLLATERAL_TOKEN_ID, 1_000u64);
+
+    sc_setup.provide_collateral(&second_user, OVERCOLLATERAL_TOKEN_ID, 1_000u64);
+    sc_setup.check_user_balance(&second_user, OVERCOLLATERAL_TOKEN_ID, 0);
+    sc_setup.check_user_nft_balance(&second_user, CP_TOKEN_ID, 2, 30_000);
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), OVERCOLLATERAL_TOKEN_ID, 2_000u64);
+
+    sc_setup.provide_collateral(&third_user, OVERCOLLATERAL_TOKEN_ID, 1_000u64);
+    sc_setup.check_user_balance(&third_user, OVERCOLLATERAL_TOKEN_ID, 0);
+    sc_setup.check_user_nft_balance(&third_user, CP_TOKEN_ID, 3, 30_000);
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), OVERCOLLATERAL_TOKEN_ID, 3_000u64);
+
+    sc_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 100u64, 9_000u64);
+    sc_setup.check_user_balance(&first_user, STABLECOIN_TOKEN_ID, 19_900);
+    sc_setup.check_user_balance(&first_user, COLLATERAL_TOKEN_ID, 100);
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), STABLECOIN_TOKEN_ID, 100);
+
+    sc_setup.swap_stablecoin(&second_user, COLLATERAL_TOKEN_ID, 100u64, 9_000u64);
+    sc_setup.check_user_balance(&second_user, STABLECOIN_TOKEN_ID, 19_900);
+    sc_setup.check_user_balance(&second_user, COLLATERAL_TOKEN_ID, 100);
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), STABLECOIN_TOKEN_ID, 200);
+
+    sc_setup.swap_stablecoin(&third_user, STABLECOIN_TOKEN_ID, 3_000u64, 1u64);
+    sc_setup.check_user_balance(&third_user, STABLECOIN_TOKEN_ID, 7_000);
+    sc_setup.check_user_balance_denominated(&third_user, COLLATERAL_TOKEN_ID, exp17(1_297));
+    sc_setup.check_user_balance(&sc_setup.sc_wrapper.address_ref(), STABLECOIN_TOKEN_ID, 200);
+
+    sc_setup.claim_fee_rewards(&first_user, CP_TOKEN_ID, 1, 30_000);
+    sc_setup.check_user_nft_balance(&first_user, CP_TOKEN_ID, 4, 30_000);
+    sc_setup.check_user_balance_denominated(&first_user, STABLECOIN_TOKEN_ID, exp9(19_966_666_666_660)); // 19_900 + 66.66666666
+    sc_setup.check_user_balance_denominated(&first_user, COLLATERAL_TOKEN_ID, exp9(100_099_999_990)); // 100 + 0.09999999
+
+    sc_setup.claim_fee_rewards(&second_user, CP_TOKEN_ID, 2, 30_000);
+    sc_setup.check_user_nft_balance(&second_user, CP_TOKEN_ID, 5, 30_000);
+    sc_setup.check_user_balance_denominated(&second_user, STABLECOIN_TOKEN_ID, exp9(19_966_666_666_660)); // 19_900 + 66.66666666
+    sc_setup.check_user_balance_denominated(&second_user, COLLATERAL_TOKEN_ID, exp9(100_099_999_990)); // 100 + 0.09999999
+
+    sc_setup.swap_stablecoin(&first_user, COLLATERAL_TOKEN_ID, 100u64, 9_000u64);
+    sc_setup.check_user_balance_denominated(&first_user, STABLECOIN_TOKEN_ID, exp9(29_866_666_666_660));
+    sc_setup.check_user_balance_denominated(&first_user, COLLATERAL_TOKEN_ID, exp9(99_999_990));
+    sc_setup.swap_stablecoin(&second_user, COLLATERAL_TOKEN_ID, 100u64, 9_000u64);
+    sc_setup.check_user_balance_denominated(&second_user, STABLECOIN_TOKEN_ID, exp9(29_866_666_666_660));
+    sc_setup.check_user_balance_denominated(&second_user, COLLATERAL_TOKEN_ID, exp9(99_999_990));
+
+    sc_setup.claim_fee_rewards(&third_user, CP_TOKEN_ID, 3, 30_000);
+    sc_setup.check_user_nft_balance(&third_user, CP_TOKEN_ID, 6, 30_000);
+    sc_setup.check_user_balance_denominated(&third_user, STABLECOIN_TOKEN_ID, exp9(7_133_333_333_320)); // 7_000 + 133.33333332
+    sc_setup.check_user_balance_denominated(&third_user, COLLATERAL_TOKEN_ID, exp9(129_799_999_990)); // 129.7 + 0.09999999
 
 }
 

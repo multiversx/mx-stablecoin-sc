@@ -68,6 +68,35 @@ pub trait CollateralProvisionModule: config::ConfigModule {
         self.cp_token_supply().update(|x| *x -= amount);
     }
 
+    fn compute_rewards(
+        &self,
+        amount: &BigUint,
+        current_rps: &BigUint,
+        initial_rps: &BigUint,
+    ) -> BigUint {
+        if current_rps > initial_rps {
+            let rps_diff = current_rps - initial_rps;
+            let div_safety = self.division_safety_constant().get();
+
+            amount * &rps_diff / div_safety
+        } else {
+            BigUint::zero()
+        }
+    }
+
+    fn update_rewards(&self, token_id: &TokenIdentifier, fee_amount: &BigUint) {
+        if fee_amount > &0u64 {
+            let division_safety_constant = self.division_safety_constant().get();
+            let cp_token_supply = self.cp_token_supply().get();
+            self.reward_reserve(token_id).update(|x| *x += fee_amount);
+
+            if cp_token_supply != 0u64 {
+                let increase = (fee_amount * &division_safety_constant) / cp_token_supply;
+                self.reward_per_share(token_id).update(|x| *x += &increase);
+            }
+        }
+    }
+
     fn get_cp_token_attributes<T: TopDecode>(
         &self,
         token_id: &TokenIdentifier,
@@ -80,16 +109,5 @@ pub trait CollateralProvisionModule: config::ConfigModule {
         );
 
         token_info.decode_attributes()
-    }
-
-    fn update_rewards(&self, token_id: &TokenIdentifier, fee_amount: &BigUint) {
-        let division_safety_constant = self.division_safety_constant().get();
-        let cp_token_supply = self.cp_token_supply().get();
-        self.reward_reserve(token_id).update(|x| *x += fee_amount);
-
-        if cp_token_supply != 0u64 {
-            let increase = (fee_amount * &division_safety_constant) / cp_token_supply;
-            self.reward_per_share(token_id).update(|x| *x += &increase);
-        }
     }
 }

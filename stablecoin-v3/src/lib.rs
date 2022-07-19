@@ -255,9 +255,7 @@ pub trait StablecoinV3:
                 .update(|total| *total += amount_in.clone());
             self.mint_stablecoins(amount_out_optimal.clone());
 
-            if spread_fee > 0u64 {
-                self.update_rewards(&stablecoin_token_id, &spread_fee);
-            }
+            self.update_rewards(&stablecoin_token_id, &spread_fee);
 
             user_payment =
                 EsdtTokenPayment::new(stablecoin_token_id.clone(), 0, amount_out_after_fee.clone());
@@ -268,9 +266,7 @@ pub trait StablecoinV3:
                 .update(|total| *total -= &amount_out_optimal.clone());
             self.burn_stablecoins(amount_in.clone());
 
-            if spread_fee > 0u64 {
-                self.update_rewards(&collateral_token_id, &spread_fee);
-            }
+            self.update_rewards(&collateral_token_id, &spread_fee);
 
             user_payment =
                 EsdtTokenPayment::new(collateral_token_id.clone(), 0, amount_out_after_fee.clone());
@@ -367,6 +363,10 @@ pub trait StablecoinV3:
             !self.stablecoin().is_empty(),
             ERROR_STABLECOIN_TOKEN_NOT_ISSUED
         );
+        require!(
+            cp_token_id == self.cp_token().get_token_id(),
+            ERROR_BAD_PAYMENT_TOKENS
+        );
         require!(payment_amount > BigUint::zero(), ERROR_INVALID_AMOUNT);
 
         let stablecoin_token_id = self.stablecoin().get_token_id();
@@ -424,26 +424,16 @@ pub trait StablecoinV3:
         let collateral_rps = self
             .reward_per_share(&self.base_collateral_token_id().get())
             .get();
-
-        let stablecoin_rewards =
-            if &stablecoin_rps > &cp_token_attributes.stablecoin_reward_per_share {
-                let rps_diff = &stablecoin_rps - &cp_token_attributes.stablecoin_reward_per_share;
-                let div_safety = self.division_safety_constant().get();
-
-                amount * &rps_diff / div_safety
-            } else {
-                BigUint::zero()
-            };
-
-        let collateral_rewards =
-            if &collateral_rps > &cp_token_attributes.collateral_reward_per_share {
-                let rps_diff = &collateral_rps - &cp_token_attributes.collateral_reward_per_share;
-                let div_safety = self.division_safety_constant().get();
-
-                amount * &rps_diff / div_safety
-            } else {
-                BigUint::zero()
-            };
+        let stablecoin_rewards = self.compute_rewards(
+            amount,
+            &stablecoin_rps,
+            &cp_token_attributes.stablecoin_reward_per_share,
+        );
+        let collateral_rewards = self.compute_rewards(
+            amount,
+            &collateral_rps,
+            &cp_token_attributes.collateral_reward_per_share,
+        );
 
         (stablecoin_rewards, collateral_rewards)
     }

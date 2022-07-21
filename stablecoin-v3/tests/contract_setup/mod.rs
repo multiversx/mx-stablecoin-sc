@@ -14,8 +14,8 @@ use elrond_wasm_debug::{
 };
 
 use elrond_wasm_modules::pause::PauseModule;
-use price_aggregator::staking::StakingModule;
-use price_aggregator::PriceAggregator;
+use elrond_sc_price_aggregator::PriceAggregator;
+use elrond_sc_price_aggregator::staking::StakingModule;
 use stablecoin_v3::collateral_provision::CollateralProvisionModule;
 use stablecoin_v3::config::ConfigModule;
 use stablecoin_v3::*;
@@ -180,7 +180,7 @@ where
         let price_aggregator_wrapper = b_mock.create_sc_account(
             &rust_zero,
             Some(&owner_address),
-            price_aggregator::contract_obj,
+            elrond_sc_price_aggregator::contract_obj,
             "price_aggregator.wasm",
         );
         let oracle = b_mock.create_user_account(&rust_biguint!(STAKE_AMOUNT));

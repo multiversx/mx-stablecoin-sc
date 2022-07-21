@@ -12,7 +12,6 @@ pub enum State {
 
 #[elrond_wasm::module]
 pub trait ConfigModule {
-
     #[only_owner]
     #[endpoint(setTokenTicker)]
     fn set_token_ticker(&self, token_id: TokenIdentifier, ticker: ManagedBuffer) {
@@ -56,7 +55,7 @@ pub trait ConfigModule {
     fn set_pool_recovery_period(&self, pool_recovery_period: u64) {
         self.pool_recovery_period().set(pool_recovery_period);
     }
-    
+
     #[inline]
     fn is_state_active(&self) -> bool {
         let state = &self.state().get();
@@ -80,9 +79,9 @@ pub trait ConfigModule {
     #[storage_mapper("price_aggregator_address")]
     fn price_aggregator_address(&self) -> SingleValueMapper<ManagedAddress>;
 
-    #[view(getCollateralTokenId)]
-    #[storage_mapper("collateral_token_id")]
-    fn collateral_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
+    #[view(getBaseCollateralTokenId)]
+    #[storage_mapper("base_collateral_token_id")]
+    fn base_collateral_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
     #[view(getCollateralSupply)]
     #[storage_mapper("collateral_supply")]
@@ -119,4 +118,27 @@ pub trait ConfigModule {
     #[view(getSpreadFeeMinPercent)]
     #[storage_mapper("spread_fee_min_percent")]
     fn spread_fee_min_percent(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("collateral_tokens")]
+    fn collateral_tokens(&self) -> WhitelistMapper<Self::Api, TokenIdentifier>;
+
+    #[view(getCpTokenId)]
+    #[storage_mapper("cp_token_id")]
+    fn cp_token(&self) -> NonFungibleTokenMapper<Self::Api>;
+
+    #[view(getCpTokenSupply)]
+    #[storage_mapper("cp_token_supply")]
+    fn cp_token_supply(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getRewardReserve)]
+    #[storage_mapper("reward_reserve")]
+    fn reward_reserve(&self, token_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
+
+    #[view(getRewardPerShare)]
+    #[storage_mapper("reward_per_share")]
+    fn reward_per_share(&self, token_id: &TokenIdentifier) -> SingleValueMapper<BigUint>;
+
+    #[view(getDivisionSafetyConstant)]
+    #[storage_mapper("division_safety_constant")]
+    fn division_safety_constant(&self) -> SingleValueMapper<BigUint>;
 }

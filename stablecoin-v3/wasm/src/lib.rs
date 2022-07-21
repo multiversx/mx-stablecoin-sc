@@ -7,20 +7,30 @@
 elrond_wasm_node::wasm_endpoints! {
     stablecoin_v3
     (
+        calculateFeeRewards
+        claimFeeRewards
         deployStablecoin
+        getBaseCollateralTokenId
         getBasePool
         getCollateralSupply
-        getCollateralTokenId
+        getCpTokenId
+        getCpTokenSupply
+        getDivisionSafetyConstant
         getLastReplenishBlock
         getMedianPoolDelta
         getPoolDelta
         getPoolRecoveryPeriod
         getPriceAggregatorAddress
+        getRewardPerShare
+        getRewardReserve
         getSpreadFeeMinPercent
         getStablecoinId
         getStablecoinSupply
         getState
         pause
+        provideCollateral
+        registerCollateralToken
+        registerFarmToken
         registerStablecoin
         resume
         setPoolRecoveryPeriod

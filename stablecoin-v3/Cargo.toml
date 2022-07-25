@@ -1,0 +1,26 @@
+[package]
+name = "stablecoin-v3"
+version = "0.0.0"
+authors = [ "Sorin Petreasca <sorin.petreasca@elrond.com>",]
+edition = "2018"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies.elrond-wasm]
+version = "0.34.1"
+
+[dependencies.elrond-wasm-modules]
+version = "0.34.1"
+
+[dev-dependencies.elrond-wasm-debug]
+version = "0.34.1"
+
+[dev-dependencies]
+num-bigint = "0.4.2"
+num-traits = "0.2"
+hex = "0.4"
+
+[dependencies]
+elrond-sc-price-aggregator = "0.34.1"

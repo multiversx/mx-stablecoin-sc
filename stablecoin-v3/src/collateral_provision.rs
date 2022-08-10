@@ -15,7 +15,7 @@ pub struct CpTokenAttributes<M: ManagedTypeApi> {
 pub trait CollateralProvisionModule: config::ConfigModule {
     #[only_owner]
     #[payable("EGLD")]
-    #[endpoint(registerFarmToken)]
+    #[endpoint(registerCPToken)]
     fn register_cp_token(
         &self,
         token_display_name: ManagedBuffer,
